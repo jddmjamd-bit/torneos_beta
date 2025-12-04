@@ -1,6 +1,20 @@
 let socket;
 document.addEventListener('DOMContentLoaded', () => {
     console.log("✅ SISTEMA V5 - SINCRONIZADO");
+    // --- AUTO-LOGIN CON COOKIES ---
+    async function verificarSesion() {
+        try {
+            const res = await fetch('/api/session');
+            if (res.ok) {
+                const data = await res.json();
+                console.log("🍪 Sesión restaurada:", data.user.username);
+                enterLobby(data.user); // ¡Entra directo sin pedir clave!
+            }
+        } catch (e) {
+            console.log("No hay sesión activa.");
+        }
+    }
+    verificarSesion(); // Ejecutar inmediatamente
     try { socket = io(); } catch (e) { console.error(e); }
 
     let currentUser = null;
@@ -847,7 +861,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // EXTRAS
     if(mobileMenuBtn) mobileMenuBtn.addEventListener('click', () => { sidebar.classList.toggle('open'); mobileOverlay.classList.toggle('open'); });
     if(mobileOverlay) mobileOverlay.addEventListener('click', () => { sidebar.classList.remove('open'); mobileOverlay.classList.remove('open'); });
-    if(btnLogout) btnLogout.addEventListener('click', ()=>location.reload());
+    if (btnLogout) btnLogout.addEventListener('click', async () => {
+        await fetch('/api/logout', { method: 'POST' }); // Borra la cookie
+        location.reload();
+    });
     // --- ESCUDO CONTRA RECARGAS ACCIDENTALES ---
     window.addEventListener('beforeunload', (e) => {
         // Solo activamos el escudo si el usuario está en algo importante

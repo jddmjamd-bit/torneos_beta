@@ -5,7 +5,7 @@ const bcrypt = require('bcrypt');
 const db = require('./db');
 const app = express();
 const server = http.createServer(app);
-
+const cookieParser = require('cookie-parser');
 const io = new Server(server, { maxHttpBufferSize: 2e8 });
 const PORT = process.env.PORT || 5000;
 
@@ -47,6 +47,7 @@ function notificarAdmin(asunto, mensaje) {
 }
 app.use(express.json({ limit: '200mb' }));
 app.use(express.static('public'));
+app.use(cookieParser('secreto_super_seguro'));
 
 let colaEsperaClash = []; 
 let activeMatches = {}; 
@@ -95,6 +96,7 @@ app.post('/api/register', async (req, res) => {
         const h = await bcrypt.hash(password, 10);
         db.run(`INSERT INTO users (username, email, password) VALUES (?,?,?)`, [username, email, h], function(err) {
             if(err) return res.status(400).json({error:'Existe'});
+            res.cookie('userId', this.lastID, { httpOnly: true, signed: true, maxAge: 86400000 });
             res.json({message:'Ok', userId:this.lastID});
         });
     } catch (e) { res.status(500).json({error:'Error'}); }
@@ -114,7 +116,7 @@ app.post('/api/login', (req, res) => {
             user.paso_juego = 0;
             user.sala_actual = null;
         }
-
+        res.cookie('userId', user.id, { httpOnly: true, signed: true, maxAge: 86400000 });
         res.json({
             message:'Ok', 
             user: {
@@ -124,6 +126,39 @@ app.post('/api/login', (req, res) => {
             }
         });
     });
+});
+
+// --- RUTA DE VERIFICACIÓN DE SESIÓN (COOKIES) ---
+app.get('/api/session', (req, res) => {
+    const userId = req.signedCookies.userId;
+    if (!userId) return res.status(401).json({ error: 'No hay sesión' });
+
+    db.get(`SELECT * FROM users WHERE id = ?`, [userId], (err, user) => {
+        if (err || !user) return res.status(401).json({ error: 'Usuario no encontrado' });
+
+        // Limpieza: Si estaba solo "buscando", lo sacamos de la cola.
+        // Si estaba en partida (encontrada o jugando), lo dejamos para que reconecte.
+        if (user.estado === 'buscando_partida') {
+            db.run(`UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id = ?`, [user.id]);
+            user.estado = 'normal';
+            user.sala_actual = null;
+            user.paso_juego = 0;
+        }
+
+        res.json({
+            user: {
+                id: user.id, username: user.username, saldo: user.saldo, 
+                tipo_suscripcion: user.tipo_suscripcion, estado: user.estado, 
+                sala_actual: user.sala_actual, paso_juego: user.paso_juego
+            }
+        });
+    });
+});
+
+// Ruta para Cerrar Sesión
+app.post('/api/logout', (req, res) => {
+    res.clearCookie('userId');
+    res.json({ message: 'Logout exitoso' });
 });
 
 app.post('/api/deposit', (req, res) => {
