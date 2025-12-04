@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Torneos Flash</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <!-- LOGIN -->
+    <div id="auth-flow" class="center-screen">
+        <div class="form-wrapper" id="registro-container">
+            <h2>Crear Cuenta</h2>
+            <form id="registro-form">
+                <input type="text" name="username" placeholder="Usuario" required>
+                <input type="email" name="email" placeholder="Email" required>
+                <input type="password" name="password" placeholder="Contraseña" required>
+                <button type="submit">Registrarse</button>
+            </form>
+            <p class="switch-text">¿Ya tienes cuenta? <a href="#" id="ir-a-login">Entrar</a></p>
+        </div>
+        <div class="form-wrapper hidden" id="login-container">
+            <h2>Entrar</h2>
+            <form id="login-form">
+                <input type="email" name="email" placeholder="Email" required>
+                <input type="password" name="password" placeholder="Contraseña" required>
+                <button type="submit">Entrar</button>
+            </form>
+            <p class="switch-text">¿Nuevo? <a href="#" id="ir-a-registro">Crear cuenta</a></p>
+        </div>
+    </div>
+
+    <!-- MODALES -->
+    <div id="deposit-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <header class="modal-header"><h3>💰 Recargar</h3><button id="close-deposit-modal" class="close-btn">&times;</button></header>
+            <div class="deposit-tabs">
+                <button class="tab-btn active" onclick="switchDepositTab('manual')">📱 Nequi</button>
+                <button class="tab-btn" onclick="switchDepositTab('auto')">⚡ Wompi</button>
+            </div>
+            <div id="tab-manual" class="deposit-section">
+                <p class="info-text">Envía a Nequi 3001234567.<br>Espera aprobación.</p>
+                <input type="number" id="manual-amount" placeholder="Monto" min="5000">
+                <input type="text" id="manual-ref" placeholder="Referencia">
+                <button id="btn-manual-deposit" class="deposit-action-btn">Enviar</button>
+            </div>
+            <div id="tab-auto" class="deposit-section hidden">
+                <p class="info-text">Recarga inmediata.</p>
+                <div class="calc-box">
+                    <label>Recibir:</label><input type="number" id="auto-amount-input" placeholder="10000" min="5000">
+                    <div class="cost-breakdown hidden" id="cost-breakdown">
+                        <div class="cost-row"><span>Comisión:</span><span id="fee-display" style="color:#ed4245;">+0</span></div>
+                        <div class="cost-row total"><span>PAGAR:</span><span id="total-pay-display" style="color:#4ecca3;">$0</span></div>
+                    </div>
+                </div>
+                <button id="btn-auto-deposit" class="deposit-action-btn" disabled>Pagar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL RETIRO -->
+    <div id="withdraw-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <header class="modal-header">
+                <h3>💸 Retirar Ganancias</h3>
+                <button id="close-withdraw-modal" class="close-btn">&times;</button>
+            </header>
+
+            <div class="deposit-section">
+                <p class="info-text">Ingresa tus datos para transferirte.<br>El proceso puede tardar hasta 24h.</p>
+
+                <input type="number" id="withdraw-amount" placeholder="Monto a retirar" min="10000">
+                <input type="text" id="withdraw-account" placeholder="Nequi / Daviplata + Número">
+                <input type="text" id="withdraw-name" placeholder="Nombre del Titular">
+
+                <button id="btn-submit-withdraw" class="deposit-action-btn" style="background:#ed4245;">Solicitar Retiro</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="admin-panel-overlay" class="modal-overlay hidden">
+        <div class="modal-content large">
+            <header class="modal-header"><h3>👑 Pagos</h3><button onclick="document.getElementById('admin-panel-overlay').classList.add('hidden')" class="close-btn">&times;</button>
+                <button id="btn-admin-stats" class="mini-btn admin-btn hidden" style="background:#5865f2;">📊 Finanzas</button>
+            </header>
+            <div class="admin-transactions-list" id="admin-transactions-list"><p>Cargando...</p></div>
+            <button onclick="cargarTransaccionesAdmin()" class="refresh-btn">🔄 Actualizar</button>
+        </div>
+        <!-- SECCIÓN DE DISPUTAS -->
+        <hr style="border-color: #40444b; margin: 20px 0;">
+        <header class="modal-header">
+            <h3>🚨 Disputas Activas</h3>
+        </header>
+        <div class="admin-transactions-list" id="admin-disputes-list">
+            <p>Cargando disputas...</p>
+        </div>
+        <header class="modal-header">
+                    <h3>📊 Contabilidad del Dueño</h3>
+                    <button onclick="document.getElementById('admin-stats-overlay').classList.add('hidden')" class="close-btn">&times;</button>
+                </header>
+
+                <div class="stats-summary" style="display:flex; gap:10px; margin-bottom:20px;">
+                    <div style="flex:1; background:#202225; padding:10px; border-radius:5px; text-align:center;">
+                        <small>Dinero en Circulación (Usuarios)</small>
+                        <h2 id="stat-users-money" style="color:#faa61a;">$0</h2>
+                    </div>
+                    <div style="flex:1; background:#202225; padding:10px; border-radius:5px; text-align:center; border: 1px solid #43b581;">
+                        <small>MI DINERO (Ganancias)</small>
+                        <h2 id="stat-admin-money" style="color:#43b581;">$0</h2>
+                    </div>
+                </div>
+
+                <h4>Usuarios Registrados</h4>
+                <div class="admin-transactions-list" id="admin-users-list" style="max-height: 200px;">
+                    <p>Cargando...</p>
+                </div>
+
+                <button onclick="cargarEstadisticasAdmin()" class="refresh-btn">🔄 Actualizar Datos</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- LOBBY -->
+    <div id="discord-lobby" class="discord-layout hidden">
+        <button id="mobile-menu-btn" class="mobile-menu-btn"><i class="fas fa-bars"></i></button>
+        <div id="mobile-overlay" class="mobile-overlay hidden"></div>
+
+        <aside class="sidebar" id="sidebar">
+            <div class="profile-box">
+                <h3 id="user-name-display">...</h3>
+                <div id="user-status-badge" class="status-indicator"><span class="status-dot"></span><span id="status-text">...</span></div>
+                <p id="user-balance" class="money">$0</p>
+                <button id="btn-open-deposit" class="mini-btn">+ Recargar</button>
+                <button id="btn-open-withdraw" class="mini-btn" style="background:#ed4245; margin-top:5px;">- Retirar</button>
+                <button id="btn-admin-panel" class="mini-btn admin-btn hidden">👑 Admin</button>
+            </div>
+            <div class="channels-list">
+                <div class="channel" onclick="cambiarCanal('anuncios', this)"># 📢 Anuncios</div>
+                <div class="channel active" onclick="cambiarCanal('general', this)"># 💬 Chat General</div>
+                <div class="category">JUEGOS</div>
+                <div class="dropdown-group">
+                    <div class="channel category-title" onclick="toggleDropdown('clash-menu')"><span>⚔️ CLASH ROYALE</span><i class="fas fa-chevron-down"></i></div>
+                    <div id="clash-menu" class="submenu hidden">
+                        <!-- IDs sincronizados: clash_chat, clash_logs, clash_pics -->
+                        <div class="channel sub-channel" onclick="cambiarCanal('clash_chat', this)">💬 General Clash</div>
+                        <div class="channel sub-channel" onclick="cambiarCanal('clash_logs', this)">📜 Registro</div>
+                        <div class="channel sub-channel" onclick="cambiarCanal('clash_pics', this)">📸 Pantallazos</div>
+                    </div>
+                </div>
+            </div>
+            <button id="btn-logout" class="logout-btn">Salir</button>
+        </aside>
+
+        <main class="chat-area">
+            <!-- VISTAS -->
+            <div id="view-anuncios" class="view-section hidden">
+                <header class="chat-header"><h3>📢 Anuncios</h3></header>
+                <div id="anuncios-messages-list" class="messages-container" style="background:#2f3136;"><div class="msg system">--- Noticias ---</div></div>
+                <form id="anuncios-chat-form" class="chat-input-area hidden">
+                    <input type="text" id="anuncios-msg-input" placeholder="Anuncio...">
+                    <input type="file" id="anuncios-file-input" style="display:none;">
+                    <label for="anuncios-file-input" class="icon-btn"><i class="fas fa-paperclip"></i></label>
+                    <button type="submit">Publicar</button>
+                </form>
+                <div id="anuncios-file-name" class="file-preview hidden"></div>
+            </div>
+
+            <div id="view-general" class="view-section">
+                <header class="chat-header"><h3>💬 General</h3></header>
+                <div id="general-messages-list" class="messages-container"><div class="msg system">Bienvenido.</div></div>
+                <form id="general-chat-form" class="chat-input-area"><input type="text" id="general-msg-input" placeholder="Escribe..."><button type="submit">Enviar</button></form>
+            </div>
+
+            <!-- CLASH CHAT -->
+            <div id="view-clash-chat" class="view-section hidden">
+                <header class="chat-header flex-header"><h3>⚔️ Clash Royale</h3><button id="btn-buscar-partida" class="flash-btn-small">⚔️ JUGAR</button></header>
+                <div id="clash-messages-list" class="messages-container"><div class="msg system">Chat Clash.</div></div>
+                <form id="clash-chat-form" class="chat-input-area"><input type="text" id="clash-msg-input" placeholder="Habla aquí..."><button type="submit">Enviar</button></form>
+            </div>
+
+            <!-- CLASH LOGS -->
+            <div id="view-clash-logs" class="view-section hidden">
+                <header class="chat-header"><h3>📜 Registro</h3></header>
+                <div id="logs-messages-list" class="messages-container" style="background:#2f3136;"></div>
+            </div>
+
+            <!-- CLASH PICS -->
+            <div id="view-clash-pics" class="view-section hidden">
+                <header class="chat-header"><h3>📸 Evidencia</h3></header>
+                <div id="pics-messages-list" class="messages-container"></div>
+                <form id="clash-pics-form" class="chat-input-area">
+                    <input type="file" id="clash-file-input" style="display:none;">
+                    <label for="clash-file-input" class="file-btn"><i class="fas fa-camera"></i> Foto</label>
+                    <span id="file-name-display" style="color:#bbb;">Ninguna</span>
+                    <button type="submit">Enviar</button>
+                </form>
+            </div>
+
+            <!-- VISTA PRIVADA -->
+            <div id="view-private" class="view-section hidden">
+                <header class="chat-header flex-header">
+                    <h3>🔒 Sala Privada</h3>
+                    <button id="btn-cancel-match" class="icon-btn-danger"><i class="fas fa-times"></i></button>
+                </header>
+
+                <div class="private-room-content">
+                    <div class="match-info">
+                        <h2 id="rival-name" style="margin:0;">VS Rival</h2>
+
+                        <!-- NUEVO: ESTADÍSTICAS DEL RIVAL -->
+                        <div id="rival-stats" class="rival-stats-box">
+                            <span title="Porcentaje de Victorias">🏆 ...%</span>
+                            <span title="Disputas perdidas (Culpable)">💀 ...</span>
+                            <span title="Huidas totales">🏃 ...</span>
+                        </div>
+
+                        <span id="max-bet-info" style="font-size:0.8rem; color:#faa61a; display:block; margin-top:5px;">Tope: ...</span>
+                    </div>
+
+                    <div id="private-messages" class="mini-chat"></div>
+
+                    <!-- ESTE ES EL FORMULARIO QUE DEBE TENER LOS IDs CORRECTOS -->
+                    <form id="private-chat-form" class="chat-input-area" style="margin-bottom:15px;">
+                        <input type="text" id="private-input" placeholder="Chatea..." autocomplete="off" style="margin:0;">
+                        <button type="submit">Enviar</button>
+                    </form>
+
+                    <div class="negotiation-box">
+                        <h4>📝 Configuración</h4>
+                        <div class="inputs-row">
+                            <div class="input-group"><label>Modo:</label><input type="text" id="input-game-mode" placeholder="Ej: Elección"></div>
+                            <div class="input-group"><label>Apuesta:</label><input type="number" id="input-bet-amount" placeholder="Mín: 5000"></div>
+                        </div>
+                        <!-- Texto Ganancia -->
+                        <p id="win-text" style="font-size: 0.9rem; font-weight: bold; margin-top: 5px; color: #bbb;">Ganancia: $0</p>
+                        <p id="validation-msg" class="validation-error"></p>
+                        <button id="btn-start-game" class="start-game-btn" disabled>🎮 COMENZAR</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-game-result" class="view-section hidden">
+                <header class="chat-header"><h3>🎮 Partida en Curso</h3></header>
+                <div class="game-lobby-content">
+                    <h1>¿Quién Ganó?</h1>
+                    <div class="result-buttons">
+                        <button id="btn-win" class="res-btn win">👑 YO GANÉ</button>
+                        <button id="btn-lose" class="res-btn lose">💀 PERDÍ</button>
+                    </div>
+                    <p id="result-selection-text" style="margin-top:20px;">Selecciona...</p>
+                    <button id="btn-confirm-result" class="confirm-btn" disabled>CONFIRMAR</button>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
