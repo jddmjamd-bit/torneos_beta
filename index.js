@@ -14,10 +14,12 @@ const nodemailer = require('nodemailer');
 // --- CONFIGURACIÓN DEL CORREO SEGURA ---
 // Usamos process.env para leer las variables ocultas de Render
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: "smtp.gmail.com", // Servidor explícito
+    port: 465,              // Puerto Seguro SSL (El 587 suele fallar en la nube)
+    secure: true,           // "true" para puerto 465
     auth: {
-        user: process.env.GMAIL_USER, // Leemos el usuario de la configuración
-        pass: process.env.GMAIL_PASS  // Leemos la contraseña de la configuración
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_PASS
     }
 });
 
