@@ -14,35 +14,35 @@ const nodemailer = require('nodemailer');
 // --- CONFIGURACIÓN DEL CORREO SEGURA ---
 // Usamos process.env para leer las variables ocultas de Render
 const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com", // Servidor explícito
-    port: 465,              // Puerto Seguro SSL (El 587 suele fallar en la nube)
-    secure: true,           // "true" para puerto 465
+    service: 'gmail', // Usamos el servicio predefinido para que él elija el mejor puerto
     auth: {
         user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_PASS
+        pass: process.env.GMAIL_PASS.replace(/\s/g, '') // TRUCO: Quitamos espacios automáticamente por si acaso
+    },
+    tls: {
+        rejectUnauthorized: false // Permite conexiones aunque el certificado SSL del host sea raro
     }
 });
 
 function notificarAdmin(asunto, mensaje) {
-    // Si no hay configuración, no intentamos enviar para evitar errores
     if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
-        console.log("⚠️ No hay credenciales de correo configuradas. Saltando notificación.");
+        console.log("⚠️ Sin credenciales de correo. Saltando.");
         return;
     }
 
     const mailOptions = {
         from: '"Torneos Flash Bot" <' + process.env.GMAIL_USER + '>',
-        to: process.env.GMAIL_USER, // Te lo envías a ti mismo
+        to: process.env.GMAIL_USER,
         subject: `🔔 ALERTA: ${asunto}`,
         text: mensaje
     };
 
-    transporter.sendMail(mailOptions, (error, info) => {
-        if (error) {
-            console.log('❌ Error enviando correo:', error);
-        } else {
-            console.log('📧 Correo enviado: ' + info.response);
-        }
+    // Usamos una promesa desconectada para que no frene el resto del código
+    transporter.sendMail(mailOptions).then(info => {
+        console.log('📧 Correo enviado: ' + info.response);
+    }).catch(error => {
+        // Si falla, solo lo registramos en consola, PERO NO DETENEMOS NADA MÁS
+        console.error('❌ Error enviando correo (Ignorado para no romper flujo):', error.message);
     });
 }
 app.use(express.json({ limit: '200mb' }));
