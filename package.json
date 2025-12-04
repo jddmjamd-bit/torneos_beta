@@ -1,20 +1,19 @@
 {
-  "name": "nodejs",
+  "name": "torneos-flash",
   "version": "1.0.0",
-  "description": "",
+  "description": "Plataforma de torneos",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "@types/node": "^22.13.11",
-    "bcrypt": "^6.0.0",
-    "express": "^5.2.1",
-    "nodemailer": "^7.0.11",
-    "socket.io": "^4.8.1",
-    "sqlite3": "^5.1.7"
+    "bcrypt": "^5.1.1",
+    "express": "^4.18.2",
+    "nodemailer": "^6.9.7",
+    "socket.io": "^4.7.2",
+    "sqlite3": "^5.1.6"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
