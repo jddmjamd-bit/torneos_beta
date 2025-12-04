@@ -16,7 +16,7 @@ const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
         user: 'partidas1v1clash@gmail.com', // Tu gmail real
-        pass: 'gxxt vutu jehg cljc' // La clave de 16 letras de Google
+        pass: 'zxjt rklh naam fooy' // La clave de 16 letras de Google
     }
 });
 
