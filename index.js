@@ -11,20 +11,26 @@ const PORT = process.env.PORT || 5000;
 
 const nodemailer = require('nodemailer');
 
-// --- CONFIGURACIÓN DEL CORREO ---
+// --- CONFIGURACIÓN DEL CORREO SEGURA ---
+// Usamos process.env para leer las variables ocultas de Render
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-        user: 'partidas1v1clash@gmail.com', // Tu gmail real
-        pass: 'zxjt rklh naam fooy' // La clave de 16 letras de Google
+        user: process.env.GMAIL_USER, // Leemos el usuario de la configuración
+        pass: process.env.GMAIL_PASS  // Leemos la contraseña de la configuración
     }
 });
 
-// Función para enviar alertas al Admin
 function notificarAdmin(asunto, mensaje) {
+    // Si no hay configuración, no intentamos enviar para evitar errores
+    if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
+        console.log("⚠️ No hay credenciales de correo configuradas. Saltando notificación.");
+        return;
+    }
+
     const mailOptions = {
-        from: 'Torneos Flash Bot',
-        to: 'partidas1v1clash@gmail.com', // A dónde te llega la alerta (puede ser el mismo)
+        from: '"Torneos Flash Bot" <' + process.env.GMAIL_USER + '>',
+        to: process.env.GMAIL_USER, // Te lo envías a ti mismo
         subject: `🔔 ALERTA: ${asunto}`,
         text: mensaje
     };
@@ -37,7 +43,6 @@ function notificarAdmin(asunto, mensaje) {
         }
     });
 }
-
 app.use(express.json({ limit: '200mb' }));
 app.use(express.static('public'));
 
