@@ -2,8 +2,8 @@
 
 /* ESTILOS BASE */
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { background-color: #2f3136; color: #fff; font-family: sans-serif; height: 100vh; overflow: hidden; }
-.center-screen { display: flex; justify-content: center; align-items: center; height: 100vh; width: 100%; }
+body { background-color: #2f3136; color: #fff; font-family: sans-serif; height: 100dvh; overflow: hidden; }
+.center-screen { display: flex; justify-content: center; align-items: center; height: 100dvh; width: 100%; }
 .hidden { display: none !important; }
 
 /* Formularios */
@@ -13,17 +13,95 @@ button { width: 100%; padding: 10px; background: #5865f2; color: white; border: 
 a { color: #00b0f4; text-decoration: none; }
 
 /* Layout Responsivo */
-.discord-layout { display: flex; height: 100vh; width: 100%; position: relative; }
+.discord-layout { display: flex; height: 100dvh; width: 100%; position: relative; }
 .sidebar { width: 260px; background: #202225; display: flex; flex-direction: column; padding: 10px; flex-shrink: 0; transition: transform 0.3s ease; }
 .mobile-menu-btn { display: none; position: absolute; top: 10px; left: 10px; z-index: 200; background: #202225; color: white; border: 1px solid #40444b; padding: 10px; }
 .mobile-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 90; }
 
 @media (max-width: 768px) {
-    .mobile-menu-btn { display: block; }
-    .sidebar { position: absolute; height: 100%; transform: translateX(-100%); box-shadow: 2px 0 10px rgba(0,0,0,0.5); z-index: 100; }
-    .sidebar.open { transform: translateX(0); }
-    .mobile-overlay.open { display: block; }
-    .chat-header { padding-left: 60px; }
+    /* --- REGLAS PARA CELULARES (Menos de 768px) --- */
+    @media (max-width: 768px) {
+
+        /* 1. Botón de Menú (Las 3 rayitas) */
+        .mobile-menu-btn { 
+            display: block; 
+            position: fixed; /* Fijo para que no se mueva al hacer scroll */
+            top: 10px; 
+            left: 10px;
+            z-index: 1001; /* Por encima de todo, incluso de la barra abierta */
+            background-color: #202225; /* Fondo oscuro para que no se mezcle */
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5); /* Sombra para que resalte */
+            width: 45px;
+            height: 45px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 2. La Barra Lateral (El Menú) */
+        .sidebar {
+            position: fixed; /* Fija para tapar el contenido */
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 85%; /* Ocupa el 85% del ancho, deja ver un borde para cerrar */
+            max-width: 300px;
+            transform: translateX(-100%); /* Escondida a la izquierda */
+            box-shadow: 5px 0 15px rgba(0,0,0,0.5);
+            z-index: 1000;
+            /* AQUÍ ESTÁ LA MAGIA: Bajamos el contenido para que no lo tape el botón */
+            padding-top: 70px; 
+        }
+
+        /* Cuando la barra está abierta */
+        .sidebar.open {
+            transform: translateX(0);
+        }
+
+        /* 3. El Header del Chat (Donde están los títulos y botones) */
+        /* 3. El Header del Chat (Donde están los títulos) */
+        .chat-header {
+            /* Empujamos todo 80px a la derecha para que el botón NO toque el texto */
+            padding-left: 80px !important; 
+            padding-right: 10px;
+
+            /* Aseguramos que el flexbox centre verticalmente pero respete el inicio horizontal */
+            display: flex;
+            align-items: center;
+            justify-content: flex-start; /* Alinea el texto a la izquierda del espacio disponible */
+
+            height: 60px;
+            width: 100%;
+            box-sizing: border-box; /* Para que el padding no agrande el ancho total */
+        }
+
+        /* Ajuste extra para el texto del título */
+        .chat-header h3 {
+            font-size: 1rem; /* Letra legible en móvil */
+            white-space: nowrap; /* Que no se parta en dos líneas */
+            overflow: hidden; /* Si es muy largo, que no se salga */
+            text-overflow: ellipsis; /* Pone '...' si es muy largo */
+            margin: 0;
+        }
+
+        /* Ajuste para cuando hay botones en el header (como Jugar o Salir) */
+        .flex-header {
+            justify-content: space-between; /* Separa título y botón derecho */
+        }
+
+        /* 4. Ajustes para el Botón de Jugar en celular */
+        .flash-btn-small {
+            padding: 5px 12px;
+            font-size: 0.8rem;
+            white-space: nowrap; /* Que no se parta el texto en dos líneas */
+        }
+
+        /* 5. El Fondo Oscuro (Overlay) */
+        .mobile-overlay {
+            z-index: 999; /* Justo debajo de la barra */
+        }
+        .mobile-overlay.open { display: block; }
+    }
 }
 
 /* Resto estilos... */
