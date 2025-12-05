@@ -1,18 +1,33 @@
 const { Pool } = require('pg');
 
-// TU URL DE SUPABASE AQUÍ (O mejor, usa process.env.DATABASE_URL en producción)
-// Por ahora pégala aquí para probar, luego la movemos a variables de entorno.
-const connectionString = process.env.DATABASE_URL || "postgresql://postgres:Juan030822...@db.wvcjkmuqlnscwrivpdmb.supabase.co:5432/postgres";
+// URL de conexión (La tomará de las variables de entorno de Render)
+const connectionString = process.env.DATABASE_URL;
 
+if (!connectionString) {
+    console.error("❌ ERROR: No hay DATABASE_URL configurada.");
+}
+
+// Configuración del Pool para Neon
 const db = new Pool({
     connectionString: connectionString,
-    ssl: { rejectUnauthorized: false } // Necesario para conexiones externas seguras
+    ssl: {
+        rejectUnauthorized: false, // Neon usa certificados autofirmados a veces, esto evita errores
+    },
+    max: 20, // Límite de conexiones simultáneas (el plan gratis de Neon soporta bastantes)
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000,
 });
 
-// Función para inicializar tablas (Sintaxis PostgreSQL)
+// Inicializador de Tablas (Se ejecuta al arrancar para crear la estructura si está vacía)
 const initDB = async () => {
     try {
-        // USUARIOS (Usamos SERIAL para autoincrement)
+        console.log("🔄 Conectando a Neon Tech...");
+        const res = await db.query('SELECT NOW()');
+        console.log("✅ ¡Conexión exitosa a Neon!", res.rows[0]);
+
+        // --- CREACIÓN DE TABLAS ---
+
+        // 1. Usuarios
         await db.query(`CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
             username TEXT UNIQUE,
@@ -38,7 +53,7 @@ const initDB = async () => {
             salidas_canal INTEGER DEFAULT 0
         )`);
 
-        // MENSAJES
+        // 2. Mensajes
         await db.query(`CREATE TABLE IF NOT EXISTS messages (
             id SERIAL PRIMARY KEY,
             canal TEXT DEFAULT 'general',
@@ -48,7 +63,7 @@ const initDB = async () => {
             fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`);
 
-        // PARTIDAS
+        // 3. Partidas
         await db.query(`CREATE TABLE IF NOT EXISTS matches (
             id SERIAL PRIMARY KEY,
             jugador1 TEXT,
@@ -60,7 +75,7 @@ const initDB = async () => {
             fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`);
 
-        // TRANSACCIONES
+        // 4. Transacciones
         await db.query(`CREATE TABLE IF NOT EXISTS transactions (
             id SERIAL PRIMARY KEY,
             usuario_id INTEGER,
@@ -73,7 +88,7 @@ const initDB = async () => {
             fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`);
 
-        // MIGRACIONES (Bóveda Admin)
+        // 5. Bóveda Admin
         await db.query(`CREATE TABLE IF NOT EXISTS admin_wallet (
             id SERIAL PRIMARY KEY,
             monto NUMERIC,
@@ -82,9 +97,10 @@ const initDB = async () => {
             fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`);
 
-        console.log("👍 Base de datos PostgreSQL conectada y verificada.");
+        console.log("👍 Tablas verificadas en Neon.");
+
     } catch (err) {
-        console.error("❌ Error inicializando DB:", err);
+        console.error("❌ Error inicializando Neon:", err.message);
     }
 };
 
