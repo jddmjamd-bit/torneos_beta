@@ -581,32 +581,65 @@ io.on('connection', (socket) => {
     };
     socket.on('cancelar_match', (data) => handleCancelMatch(socket, data?.motivo));
 
-    // DISCONNECT (Gracia)
+    // 3. DESCONEXIÓN INTELIGENTE (Gracia vs Persistencia)
     socket.on('disconnect', () => {
+        // Limpiar cola de espera (Inmediato)
         colaEsperaClash = colaEsperaClash.filter(s => s.id !== socket.id);
-        const salaId = socket.currentRoom;
-        if (salaId && activeMatches[salaId]) {
-            const match = activeMatches[salaId];
-            if (!match.iniciado) { handleCancelMatch(socket, 'Desconexión lobby'); return; }
 
-            const uid = socket.userData?.id;
-            if (uid) {
-                if (!match.disconnectTimers) match.disconnectTimers = {};
-                socket.to(salaId).emit('rival_desconectado', { tiempo: 15 });
-                match.disconnectTimers[uid] = setTimeout(() => {
-                    // Timeout: Cancelar y perder
-                    if (activeMatches[salaId]) {
-                        const pName = socket.userData.username;
-                        logClash(`⚠️ ABANDONO #${match.dbId} por ${pName}`);
-                        io.to(salaId).emit('match_cancelado', { motivo: 'Rival abandonó (Timeout)' });
-                        // Limpieza final
-                         match.players.forEach(p => {
-                            if(p.userData) db.query(`UPDATE users SET estado='normal', sala_actual=NULL, paso_juego=0 WHERE id=$1`, [p.userData.id]);
-                         });
-                        delete activeMatches[salaId];
-                    }
-                }, 15000);
+        const salaId = socket.currentRoom;
+        const userData = socket.userData;
+
+        if (salaId && activeMatches[salaId] && userData) {
+            const match = activeMatches[salaId];
+
+            // --- CASO A: PARTIDA YA INICIADA (Dinero Apostado) ---
+            // Aquí NO hay temporizador. Se espera indefinidamente a que vuelvan.
+            if (match.iniciado) {
+                console.log(`🔌 ${userData.username} desconectado de partida ACTIVA. Esperando retorno...`);
+                // Opcional: Avisar al rival que se desconectó, pero sin cancelar
+                socket.to(salaId).emit('rival_desconectado', { tiempo: "indefinido", mensaje: "Rival desconectado. Esperando..." });
+                return;
             }
+
+            // --- CASO B: NEGOCIACIÓN (Chat Privado) ---
+            // Aquí SÍ aplicamos la regla de los 15 segundos y penalización.
+            console.log(`🔌 ${userData.username} se fue en negociación. Timer 15s activado.`);
+
+            if (!match.disconnectTimers) match.disconnectTimers = {};
+
+            // Avisar al rival
+            socket.to(salaId).emit('rival_desconectado', { tiempo: 15 });
+
+            // ACTIVAR BOMBA DE TIEMPO
+            match.disconnectTimers[userData.id] = setTimeout(async () => {
+                console.log(`💀 Timeout en negociación para ${userData.username}.`);
+
+                // Verificamos si la partida sigue existiendo y no ha iniciado
+                if (activeMatches[salaId] && !activeMatches[salaId].iniciado) {
+
+                    // 1. SUMAR ESTADÍSTICA DE HUIDA (Castigo)
+                    await db.query(`UPDATE users SET salidas_chat = salidas_chat + 1, salidas_desconexion = salidas_desconexion + 1 WHERE id = $1`, [userData.id]);
+
+                    // 2. LOG
+                    const pName = userData.username;
+                    logClash(`⚠️ ABANDONO Negociación: ${pName} no volvió (15s)`);
+
+                    // 3. AVISAR Y CANCELAR
+                    io.to(salaId).emit('match_cancelado', { motivo: `${pName} abandonó por desconexión` });
+
+                    // 4. LIBERAR A TODOS
+                    const players = activeMatches[salaId].players;
+                    for (const p of players) {
+                        if (p.leave) p.leave(salaId);
+                        p.currentRoom = null;
+                        if (p.userData) {
+                            await db.query(`UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id = $1`, [p.userData.id]);
+                        }
+                    }
+
+                    delete activeMatches[salaId];
+                }
+            }, 15000); // 15 Segundos
         }
     });
 });
