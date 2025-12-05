@@ -2,7 +2,7 @@ const { Pool } = require('pg');
 
 // TU URL DE SUPABASE AQUÍ (O mejor, usa process.env.DATABASE_URL en producción)
 // Por ahora pégala aquí para probar, luego la movemos a variables de entorno.
-const connectionString = process.env.DATABASE_URL || "postgres:Juan030822...@db.wvcjkmuqlnscwrivpdmb.supabase.co:5432/postgres";
+const connectionString = process.env.DATABASE_URL || "postgresql://postgres:Juan030822...@db.wvcjkmuqlnscwrivpdmb.supabase.co:5432/postgres";
 
 const db = new Pool({
     connectionString: connectionString,
