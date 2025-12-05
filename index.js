@@ -2,850 +2,588 @@ const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
 const bcrypt = require('bcrypt');
-const db = require('./db');
+const db = require('./db'); // Ahora usa la Pool de PostgreSQL
 const app = express();
 const server = http.createServer(app);
 const cookieParser = require('cookie-parser');
+
+// Configuración para soportar videos/fotos pesadas
 const io = new Server(server, { maxHttpBufferSize: 2e8 });
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5000; // Compatible con Render
 
 const nodemailer = require('nodemailer');
 
-// --- CONFIGURACIÓN DEL CORREO SEGURA ---
-// Usamos process.env para leer las variables ocultas de Render
+// --- CORREO ---
 const transporter = nodemailer.createTransport({
-    service: 'gmail', // Usamos el servicio predefinido para que él elija el mejor puerto
+    service: 'gmail',
     auth: {
         user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_PASS.replace(/\s/g, '') // TRUCO: Quitamos espacios automáticamente por si acaso
+        pass: (process.env.GMAIL_PASS || '').replace(/\s/g, '')
     },
-    tls: {
-        rejectUnauthorized: false // Permite conexiones aunque el certificado SSL del host sea raro
-    }
+    tls: { rejectUnauthorized: false }
 });
 
 function notificarAdmin(asunto, mensaje) {
-    if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
-        console.log("⚠️ Sin credenciales de correo. Saltando.");
-        return;
-    }
-
+    if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) return;
     const mailOptions = {
         from: '"Torneos Flash Bot" <' + process.env.GMAIL_USER + '>',
         to: process.env.GMAIL_USER,
         subject: `🔔 ALERTA: ${asunto}`,
         text: mensaje
     };
-
-    // Usamos una promesa desconectada para que no frene el resto del código
-    transporter.sendMail(mailOptions).then(info => {
-        console.log('📧 Correo enviado: ' + info.response);
-    }).catch(error => {
-        // Si falla, solo lo registramos en consola, PERO NO DETENEMOS NADA MÁS
-        console.error('❌ Error enviando correo (Ignorado para no romper flujo):', error.message);
-    });
+    transporter.sendMail(mailOptions).catch(e => console.error('Error correo:', e.message));
 }
+
 app.use(express.json({ limit: '200mb' }));
 app.use(express.static('public'));
 app.use(cookieParser('secreto_super_seguro'));
 
 let colaEsperaClash = []; 
 let activeMatches = {}; 
-// --- REPORTERO (LOGS) ---
-function logClash(texto) {
+
+// --- REPORTERO ---
+async function logClash(texto) {
     const fecha = new Date().toISOString();
-    db.run(`INSERT INTO messages (canal, usuario, texto, tipo, fecha) VALUES (?, ?, ?, ?, ?)`, 
-        ['clash_logs', 'SISTEMA', texto, 'log', fecha]);
-    io.emit('mensaje_chat', { canal: 'clash_logs', usuario: 'SISTEMA', texto: texto, tipo: 'log', fecha: fecha });
+    try {
+        await db.query(`INSERT INTO messages (canal, usuario, texto, tipo, fecha) VALUES ($1, $2, $3, $4, $5)`, 
+            ['clash_logs', 'SISTEMA', texto, 'log', fecha]);
+        io.emit('mensaje_chat', { canal: 'clash_logs', usuario: 'SISTEMA', texto: texto, tipo: 'log', fecha: fecha });
+    } catch (e) { console.error("Error log:", e); }
 }
 
-// --- volverme admin ---
-app.get('/secret-admin/:username', (req, res) => {
-    const usuario = req.params.username;
-    db.run(`UPDATE users SET tipo_suscripcion = 'admin' WHERE username = ?`, [usuario], function(err) {
-        res.send(`<h1>¡Éxito! 👑</h1><p>El usuario <b>${usuario}</b> ahora es ADMIN.</p><p>Cierra sesión y vuelve a entrar.</p>`);
-    });
+// --- ADMIN TOOLS ---
+app.get('/secret-admin/:username', async (req, res) => {
+    try {
+        await db.query(`UPDATE users SET tipo_suscripcion = 'admin' WHERE username = $1`, [req.params.username]);
+        res.send(`<h1>¡Éxito! 👑</h1><p>${req.params.username} ahora es ADMIN.</p>`);
+    } catch (e) { res.send("Error BD"); }
 });
 
-// --- HERRAMIENTA ADMIN DE RESETEO (SIN LOG) ---
-app.get('/admin-fix-status/:targetUser/:adminUser', (req, res) => {
-    const target = req.params.targetUser;
-    const admin = req.params.adminUser;
+app.get('/admin-fix-status/:targetUser/:adminUser', async (req, res) => {
+    try {
+        const adminRes = await db.query(`SELECT tipo_suscripcion FROM users WHERE username = $1`, [req.params.adminUser]);
+        if (!adminRes.rows[0] || adminRes.rows[0].tipo_suscripcion !== 'admin') return res.send("<h1>⛔ DENEGADO</h1>");
 
-    // Verificar si quien ejecuta es admin
-    db.get(`SELECT tipo_suscripcion FROM users WHERE username = ?`, [admin], (err, row) => {
-        if (err || !row || row.tipo_suscripcion !== 'admin') {
-            return res.send("<h1>⛔ ACCESO DENEGADO</h1>");
-        }
-
-        // Resetear al usuario objetivo
-        db.run(`UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE username = ?`, [target], function(err) {
-            if (err) return res.send("Error BD");
-            if (this.changes === 0) return res.send("Usuario no encontrado");
-
-            // NO HACEMOS LOG PÚBLICO AQUÍ
-            res.send(`<h1>✅ CUENTA LIBERADA</h1><p>El usuario <b>${target}</b> ha sido reseteado.</p>`);
-        });
-    });
+        await db.query(`UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE username = $1`, [req.params.targetUser]);
+        res.send(`<h1>✅ LIBERADA</h1><p>${req.params.targetUser} reseteado.</p>`);
+    } catch (e) { res.send("Error BD"); }
 });
 
-// --- RUTAS HTTP (Igual) ---
+// --- AUTH ---
 app.post('/api/register', async (req, res) => {
     try {
         const { username, email, password } = req.body;
         const h = await bcrypt.hash(password, 10);
-        db.run(`INSERT INTO users (username, email, password) VALUES (?,?,?)`, [username, email, h], function(err) {
-            if(err) return res.status(400).json({error:'Existe'});
-            res.cookie('userId', this.lastID, { httpOnly: true, signed: true, maxAge: 86400000 });
-            res.json({message:'Ok', userId:this.lastID});
-        });
-    } catch (e) { res.status(500).json({error:'Error'}); }
-});
+        // Postgres usa RETURNING id
+        const result = await db.query(`INSERT INTO users (username, email, password) VALUES ($1, $2, $3) RETURNING id`, [username, email, h]);
 
-app.post('/api/login', (req, res) => {
-    const { email, password } = req.body;
-    db.get(`SELECT * FROM users WHERE email = ?`, [email], async (err, user) => {
-        if(!user || !await bcrypt.compare(password, user.password)) return res.status(400).json({error:'Error'});
-
-        // CORRECCIÓN CRÍTICA:
-        // Si está en 'partida_encontrada' (Negociando), NO LO BORRAMOS.
-        // Dejamos que la lógica de 'registrar_socket' maneje la reconexión o el timeout.
-        if (user.estado === 'buscando_partida') {
-            db.run(`UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id = ?`, [user.id]);
-            user.estado = 'normal';
-            user.paso_juego = 0;
-            user.sala_actual = null;
-        }
-        res.cookie('userId', user.id, { httpOnly: true, signed: true, maxAge: 86400000 });
-        res.json({
-            message:'Ok', 
-            user: {
-                id: user.id, username: user.username, saldo: user.saldo, 
-                tipo_suscripcion: user.tipo_suscripcion, estado: user.estado, 
-                sala_actual: user.sala_actual, paso_juego: user.paso_juego
-            }
-        });
-    });
-});
-
-// --- RUTA DE VERIFICACIÓN DE SESIÓN (COOKIES) ---
-app.get('/api/session', (req, res) => {
-    const userId = req.signedCookies.userId;
-    if (!userId) return res.status(401).json({ error: 'No hay sesión' });
-
-    db.get(`SELECT * FROM users WHERE id = ?`, [userId], (err, user) => {
-        if (err || !user) return res.status(401).json({ error: 'Usuario no encontrado' });
-
-        // Limpieza: Si estaba solo "buscando", lo sacamos de la cola.
-        // Si estaba en partida (encontrada o jugando), lo dejamos para que reconecte.
-        if (user.estado === 'buscando_partida') {
-            db.run(`UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id = ?`, [user.id]);
-            user.estado = 'normal';
-            user.sala_actual = null;
-            user.paso_juego = 0;
-        }
-
-        res.json({
-            user: {
-                id: user.id, username: user.username, saldo: user.saldo, 
-                tipo_suscripcion: user.tipo_suscripcion, estado: user.estado, 
-                sala_actual: user.sala_actual, paso_juego: user.paso_juego
-            }
-        });
-    });
-});
-
-// Ruta para Cerrar Sesión
-app.post('/api/logout', (req, res) => {
-    res.clearCookie('userId');
-    res.json({ message: 'Logout exitoso' });
-});
-
-app.post('/api/deposit', (req, res) => {
-    const { userId, amount } = req.body;
-    db.run(`UPDATE users SET saldo = saldo + ? WHERE id = ?`, [amount, userId], function(err) {
-        db.get(`SELECT saldo FROM users WHERE id = ?`, [userId], (err, r) => res.json({newBalance:r.saldo}));
-    });
-});
-
-// SOLICITUD DE RETIRO
-// --- SOLICITUD DE RETIRO ---
-app.post('/api/transaction/withdraw', (req, res) => {
-    const { userId, username, monto, datosCuenta } = req.body;
-
-    // 1. Verificar saldo suficiente
-    db.get(`SELECT saldo FROM users WHERE id = ?`, [userId], (err, user) => {
-        if (err || !user) return res.status(500).json({error: 'Error usuario'});
-        if (user.saldo < monto) return res.status(400).json({error: 'Saldo insuficiente'});
-
-        // 2. Descontar saldo INMEDIATAMENTE (Congelar fondos)
-        db.run(`UPDATE users SET saldo = saldo - ? WHERE id = ?`, [monto, userId], (err) => {
-            if (err) return res.status(500).json({error: 'Error al descontar'});
-
-            // 3. Crear transacción pendiente tipo 'retiro'
-            db.run(`INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado) VALUES (?,?,?,?,?,?, 'pendiente')`,
-                [userId, username, 'retiro', 'nequi_retiro', monto, datosCuenta]);
-
-            // --- NUEVO: NOTIFICAR CORREO ---
-            notificarAdmin(
-                "Solicitud de RETIRO", 
-                `El usuario ${username} quiere retirar $${monto}. Datos: ${datosCuenta}.`
-            );
-
-            // 4. Responder con saldo actualizado
-            db.get(`SELECT saldo FROM users WHERE id = ?`, [userId], (err, row) => {
-                res.json({ success: true, message: 'Solicitud enviada. Saldo descontado temporalmente.', newBalance: row.saldo });
-            });
-        });
-    });
-});
-
-// Transacciones
-app.post('/api/transaction/create', (req, res) => {
-    const { userId, username, tipo, metodo, monto, referencia } = req.body;
-    if (metodo === 'auto_wompi') {
-        const montoReal = parseInt(monto);
-        // 1. Lo que le cobramos al usuario (Tarifa Cara)
-        // Fórmula: ((Monto * 1.3) + 700) * 1.2
-        const baseCara = montoReal + 840;
-        const totalCobrado = Math.ceil(baseCara / 0.964);
-
-        // 2. Lo que te cobra Wompi a ti (Costo Real Estimado)
-        // Fórmula Estándar: ((Monto * 2.65%) + 700) * 1.19 (IVA sobre comisión)
-        // Ajusta estos valores si tu contrato es diferente
-        const costoBaseWompi = (totalCobrado * 0.0265) + 700;
-        const costoRealTotal = Math.ceil(costoBaseWompi + (costoBaseWompi * 0.19));
-
-        // 3. Tu Ganancia Real (Excedente)
-        // Ganancia = Lo que pagó el usuario - (Lo que recibe el usuario + Lo que se lleva Wompi)
-        const gananciaDueño = totalCobrado - (montoReal + costoRealTotal);
-
-        db.run(`UPDATE users SET saldo = saldo + ? WHERE id = ?`, [monto, userId], (err) => {
-            if (err) return res.status(500).json({error: 'Error BD'});
-
-
-            db.run(`INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado) VALUES (?,?,?,?,?,?, 'completado')`,
-                [userId, username, tipo, metodo, monto, 'AUTO-'+Date.now()]);
-
-            // GUARDAR SOLO LA GANANCIA NETA
-            if (gananciaDueño > 0) {
-                db.run(`INSERT INTO admin_wallet (monto, razon, detalle) VALUES (?, ?, ?)`, 
-                    [gananciaDueño, 'excedente_recarga', `Recarga ${username} ($${monto})`]);
-            }
-
-            db.get(`SELECT saldo FROM users WHERE id = ?`, [userId], (err, row) => {
-                res.json({ success: true, message: `¡Recarga de $${monto} exitosa!`, newBalance: row.saldo });
-            });
-        });
-    } else {
-        db.run(`INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado) VALUES (?,?,?,?,?,?, 'pendiente')`, [userId, username, tipo, metodo, monto, referencia], (err) => res.json({ success: true, message: 'Solicitud enviada.' }));
-        notificarAdmin(
-            "Nueva Recarga Nequi Pendiente", 
-            `El usuario ${username} dice que envió $${monto}. Referencia: ${referencia}. Entra al panel para aprobar.`
-        );
+        res.cookie('userId', result.rows[0].id, { httpOnly: true, signed: true, maxAge: 86400000 });
+        res.json({message:'Ok', userId: result.rows[0].id});
+    } catch (e) { 
+        console.error(e);
+        res.status(400).json({error:'Usuario ya existe o error de datos'}); 
     }
 });
-app.get('/api/admin/transactions', (req, res) => { db.all(`SELECT * FROM transactions WHERE estado = 'pendiente' ORDER BY id DESC`, [], (err, rows) => res.json(rows || [])); });
-// 3. PROCESAR SOLICITUD (CON NOTIFICACIÓN AL CLIENTE)
-// PROCESAR SOLICITUD (ACTUALIZADO PARA RETIROS)
-app.post('/api/admin/transaction/process', (req, res) => {
-    const { transId, action } = req.body; // action: 'approve' | 'reject'
 
-    db.get(`SELECT * FROM transactions WHERE id = ?`, [transId], (err, trans) => {
-        if (!trans || trans.estado !== 'pendiente') return res.status(400).json({error: 'No válida'});
+app.post('/api/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        const result = await db.query(`SELECT * FROM users WHERE email = $1`, [email]);
+        const user = result.rows[0];
 
-        // Función auxiliar de notificación (Misma de antes)
-        const notificarCliente = (uid, mensaje, nuevoSaldo = null) => {
-            const allSockets = io.sockets.sockets;
-            for (const [_, s] of allSockets) {
+        if(!user || !await bcrypt.compare(password, user.password)) return res.status(400).json({error:'Credenciales inválidas'});
+
+        // Fix estados temporales
+        if (user.estado === 'buscando_partida') {
+            await db.query(`UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id = $1`, [user.id]);
+            user.estado = 'normal'; user.paso_juego = 0; user.sala_actual = null;
+        }
+
+        res.cookie('userId', user.id, { httpOnly: true, signed: true, maxAge: 86400000 });
+
+        // Convertir saldo a número (Postgres devuelve string en NUMERIC)
+        user.saldo = parseFloat(user.saldo);
+
+        res.json({ message:'Ok', user });
+    } catch (e) { res.status(500).json({error:'Error servidor'}); }
+});
+
+app.get('/api/session', async (req, res) => {
+    try {
+        const userId = req.signedCookies.userId;
+        if (!userId) return res.status(401).json({ error: 'No sesión' });
+
+        const result = await db.query(`SELECT * FROM users WHERE id = $1`, [userId]);
+        const user = result.rows[0];
+        if (!user) return res.status(401).json({ error: 'Usuario no encontrado' });
+
+        if (user.estado === 'buscando_partida') {
+            await db.query(`UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id = $1`, [user.id]);
+            user.estado = 'normal';
+        }
+        user.saldo = parseFloat(user.saldo);
+        res.json({ user });
+    } catch (e) { res.status(401).json({ error: 'Error sesión' }); }
+});
+
+app.post('/api/logout', (req, res) => {
+    res.clearCookie('userId');
+    res.json({ message: 'Bye' });
+});
+
+// --- FINANZAS ---
+app.post('/api/deposit', async (req, res) => {
+    try {
+        const { userId, amount } = req.body;
+        await db.query(`UPDATE users SET saldo = saldo + $1 WHERE id = $2`, [amount, userId]);
+        const r = await db.query(`SELECT saldo FROM users WHERE id = $1`, [userId]);
+        res.json({newBalance: parseFloat(r.rows[0].saldo)});
+    } catch (e) { res.status(500).json({error: 'Error depósito'}); }
+});
+
+app.post('/api/transaction/withdraw', async (req, res) => {
+    try {
+        const { userId, username, monto, datosCuenta } = req.body;
+        const uRes = await db.query(`SELECT saldo FROM users WHERE id = $1`, [userId]);
+        if (parseFloat(uRes.rows[0].saldo) < monto) return res.status(400).json({error: 'Saldo insuficiente'});
+
+        await db.query(`UPDATE users SET saldo = saldo - $1 WHERE id = $2`, [monto, userId]);
+        await db.query(`INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado) VALUES ($1,$2,$3,$4,$5,$6,'pendiente')`,
+            [userId, username, 'retiro', 'nequi_retiro', monto, datosCuenta]);
+
+        notificarAdmin("RETIRO SOLICITADO", `${username} pide $${monto}. Datos: ${datosCuenta}`);
+
+        const finalRes = await db.query(`SELECT saldo FROM users WHERE id = $1`, [userId]);
+        res.json({ success: true, message: 'Solicitud enviada.', newBalance: parseFloat(finalRes.rows[0].saldo) });
+    } catch (e) { res.status(500).json({error: 'Error retiro'}); }
+});
+
+app.post('/api/transaction/create', async (req, res) => {
+    try {
+        const { userId, username, tipo, metodo, monto, referencia } = req.body;
+        const montoReal = parseInt(monto);
+
+        if (metodo === 'auto_wompi') {
+            // Lógica Wompi + Ganancia Dueño
+            const baseCara = montoReal + 840;
+            const totalCobrado = Math.ceil(baseCara / 0.964);
+
+            // Costo real (aprox)
+            const costoBaseWompi = (totalCobrado * 0.0265) + 700;
+            const costoRealTotal = Math.ceil(costoBaseWompi * 1.19);
+
+            const gananciaDueño = totalCobrado - (montoReal + costoRealTotal);
+
+            await db.query(`UPDATE users SET saldo = saldo + $1 WHERE id = $2`, [montoReal, userId]);
+            await db.query(`INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado) VALUES ($1,$2,$3,$4,$5,$6,'completado')`,
+                [userId, username, tipo, metodo, montoReal, 'AUTO-'+Date.now()]);
+
+            if (gananciaDueño > 0) {
+                await db.query(`INSERT INTO admin_wallet (monto, razon, detalle) VALUES ($1, $2, $3)`, 
+                    [gananciaDueño, 'excedente_recarga', `Recarga ${username}`]);
+            }
+
+            const r = await db.query(`SELECT saldo FROM users WHERE id = $1`, [userId]);
+            res.json({ success: true, message: `¡Recarga de $${montoReal} exitosa!`, newBalance: parseFloat(r.rows[0].saldo) });
+
+        } else {
+            // Nequi Manual
+            await db.query(`INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado) VALUES ($1,$2,$3,$4,$5,$6,'pendiente')`,
+                [userId, username, tipo, metodo, monto, referencia]);
+
+            notificarAdmin("RECARGA NEQUI", `${username} envió $${monto}. Ref: ${referencia}`);
+            res.json({ success: true, message: 'Solicitud enviada.' });
+        }
+    } catch (e) { res.status(500).json({error: 'Error transaccion'}); }
+});
+
+// --- ADMIN PANEL ---
+app.get('/api/admin/transactions', async (req, res) => {
+    const r = await db.query(`SELECT * FROM transactions WHERE estado = 'pendiente' ORDER BY id DESC`);
+    res.json(r.rows);
+});
+
+app.get('/api/admin/disputes', async (req, res) => {
+    const r = await db.query(`SELECT * FROM matches WHERE estado = 'disputa'`);
+    res.json(r.rows);
+});
+
+app.get('/api/admin/stats', async (req, res) => {
+    const totalU = await db.query(`SELECT SUM(saldo) as total FROM users WHERE tipo_suscripcion != 'admin'`);
+    const totalA = await db.query(`SELECT SUM(monto) as total FROM admin_wallet`);
+    const users = await db.query(`SELECT * FROM users ORDER BY ganancia_generada DESC`);
+    res.json({
+        totalUsuarios: parseFloat(totalU.rows[0].total || 0),
+        totalGanancias: parseFloat(totalA.rows[0].total || 0),
+        listaUsuarios: users.rows
+    });
+});
+
+app.post('/api/admin/transaction/process', async (req, res) => {
+    const { transId, action } = req.body;
+    try {
+        const tRes = await db.query(`SELECT * FROM transactions WHERE id = $1`, [transId]);
+        const trans = tRes.rows[0];
+        if (!trans || trans.estado !== 'pendiente') return res.status(400).json({error: 'Inválida'});
+
+        const notificar = (uid, msg, saldo) => {
+            for (const [_, s] of io.sockets.sockets) {
                 if (s.userData && s.userData.id == uid) {
-                    s.emit('transaccion_completada', { mensaje });
-                    if (nuevoSaldo !== null) {
-                        s.userData.saldo = nuevoSaldo;
-                        s.emit('actualizar_saldo', nuevoSaldo);
-                    }
+                    s.emit('transaccion_completada', { mensaje: msg });
+                    if (saldo !== null) { s.userData.saldo = saldo; s.emit('actualizar_saldo', saldo); }
                     break;
                 }
             }
         };
 
         if (action === 'reject') {
-            // RECHAZAR
             if (trans.tipo === 'retiro') {
-                // SI ERA RETIRO, HAY QUE DEVOLVER LA PLATA
-                db.run(`UPDATE users SET saldo = saldo + ? WHERE id = ?`, [trans.monto, trans.usuario_id], () => {
-                    db.run(`UPDATE transactions SET estado = 'rechazado' WHERE id = ?`, [transId]);
-
-                    // Notificar devolución
-                    db.get(`SELECT saldo FROM users WHERE id = ?`, [trans.usuario_id], (e, u) => {
-                        if(u) notificarCliente(trans.usuario_id, "❌ Retiro rechazado. Dinero devuelto.", u.saldo);
-                    });
-                    res.json({success: true, message: 'Rechazada y dinero devuelto'});
-                });
+                await db.query(`UPDATE users SET saldo = saldo + $1 WHERE id = $2`, [trans.monto, trans.usuario_id]);
+                const u = await db.query(`SELECT saldo FROM users WHERE id = $1`, [trans.usuario_id]);
+                notificar(trans.usuario_id, "❌ Retiro rechazado. Saldo devuelto.", parseFloat(u.rows[0].saldo));
             } else {
-                // SI ERA DEPÓSITO, SOLO MARCAR RECHAZADO
-                db.run(`UPDATE transactions SET estado = 'rechazado' WHERE id = ?`, [transId]);
-                notificarCliente(trans.usuario_id, "❌ Recarga rechazada.");
-                res.json({success: true, message: 'Recarga rechazada'});
+                notificar(trans.usuario_id, "❌ Recarga rechazada.");
             }
-
-        } else if (action === 'approve') {
-            // APROBAR
-            if (trans.tipo === 'retiro') {
-                // SI ES RETIRO, EL DINERO YA SE DESCONTÓ. SOLO MARCAMOS COMPLETADO.
-                db.run(`UPDATE transactions SET estado = 'completado' WHERE id = ?`, [transId]);
-                notificarCliente(trans.usuario_id, "✅ Tu retiro ha sido enviado.");
-                res.json({success: true, message: 'Retiro marcado como enviado'});
+            await db.query(`UPDATE transactions SET estado = 'rechazado' WHERE id = $1`, [transId]);
+            res.json({success: true, message: 'Rechazada'});
+        } else {
+            // Approve
+            if (trans.tipo === 'deposito') {
+                await db.query(`UPDATE users SET saldo = saldo + $1 WHERE id = $2`, [trans.monto, trans.usuario_id]);
+                const u = await db.query(`SELECT saldo FROM users WHERE id = $1`, [trans.usuario_id]);
+                notificar(trans.usuario_id, "✅ Recarga aprobada.", parseFloat(u.rows[0].saldo));
             } else {
-                // SI ES DEPÓSITO, SUMAMOS EL SALDO
-                db.run(`UPDATE users SET saldo = saldo + ? WHERE id = ?`, [trans.monto, trans.usuario_id], () => {
-                    db.run(`UPDATE transactions SET estado = 'completado' WHERE id = ?`, [transId]);
-                    db.get(`SELECT saldo FROM users WHERE id = ?`, [trans.usuario_id], (e, u) => {
-                        if(u) notificarCliente(trans.usuario_id, `✅ Recarga aprobada.`, u.saldo);
-                    });
-                    res.json({success: true, message: 'Recarga aprobada'});
-                });
+                notificar(trans.usuario_id, "✅ Retiro enviado.");
             }
+            await db.query(`UPDATE transactions SET estado = 'completado' WHERE id = $1`, [transId]);
+            res.json({success: true, message: 'Aprobada'});
         }
-    });
+    } catch(e) { res.status(500).json({error: 'Error procesando'}); }
 });
 
-// VER DISPUTAS
-app.get('/api/admin/disputes', (req, res) => {
-    db.all(`SELECT * FROM matches WHERE estado = 'disputa'`, [], (err, rows) => {
-        res.json(rows || []);
-    });
-});
-
-// RESOLVER DISPUTA (CON CULPABLE Y FALTAS)
-app.post('/api/admin/resolve-dispute', (req, res) => {
+// RESOLUCIÓN DISPUTAS
+app.post('/api/admin/resolve-dispute', async (req, res) => {
     const { matchId, ganadorNombre, culpableNombre } = req.body;
-
-    db.get(`SELECT * FROM matches WHERE id = ?`, [matchId], (err, match) => {
+    try {
+        const mRes = await db.query(`SELECT * FROM matches WHERE id = $1`, [matchId]);
+        const match = mRes.rows[0];
         if (!match) return res.json({error: 'No existe'});
 
-        db.get(`SELECT id, saldo FROM users WHERE username = ?`, [ganadorNombre], (err, winner) => {
-            if (!winner) return res.json({error: 'Usuario no encontrado'});
+        const wRes = await db.query(`SELECT id, saldo FROM users WHERE username = $1`, [ganadorNombre]);
+        const winner = wRes.rows[0];
 
-            const pozo = match.apuesta * 2;
-            const comision = pozo * 0.20; 
-            const premio = pozo - comision;
+        const pozo = parseFloat(match.apuesta) * 2;
+        const comision = pozo * 0.20;
+        const premio = pozo - comision;
+        const utilidad = comision / 2;
 
-            // 1. Pagar al ganador
-            db.run(`UPDATE users SET saldo = saldo + ? WHERE id = ?`, [premio, winner.id], () => {
+        // 1. Pagar
+        await db.query(`UPDATE users SET saldo = saldo + $1 WHERE id = $2`, [premio, winner.id]);
 
-                // --- ESTADÍSTICAS: GANADOR (Disputa) ---
-                db.run(`UPDATE users SET total_victorias = total_victorias + 1, victorias_disputa = victorias_disputa + 1, total_partidas = total_partidas + 1 WHERE id = ?`, [winner.id]);
+        // 2. Stats & Bóveda
+        await db.query(`UPDATE users SET ganancia_generada = ganancia_generada + $1 WHERE username IN ($2, $3)`, [utilidad, match.jugador1, match.jugador2]);
+        await db.query(`INSERT INTO admin_wallet (monto, razon, detalle) VALUES ($1, $2, $3)`, [comision, 'comision_disputa', `Match #${matchId}`]);
 
-                // --- ESTADÍSTICAS: PERDEDOR (Disputa) ---
-                // Buscamos al perdedor por nombre (el que no es winner)
-                const perdedorNombre = (winner.username === match.jugador1) ? match.jugador2 : match.jugador1;
-                db.run(`UPDATE users SET total_derrotas = total_derrotas + 1, derrotas_disputa = derrotas_disputa + 1, total_partidas = total_partidas + 1 WHERE username = ?`, [perdedorNombre]);
-                // Notificación en vivo (Saldo)
-                const allSockets = io.sockets.sockets;
-                for (const [_, socket] of allSockets) {
-                    if (socket.userData) {
-                        if (socket.userData.id === winner.id) {
-                            socket.userData.saldo += premio;
-                            socket.emit('actualizar_saldo', socket.userData.saldo);
-                        }
-                        // Liberar a ambos
-                        if (socket.userData.username === match.jugador1 || socket.userData.username === match.jugador2) {
-                            socket.emit('flujo_completado');
-                            socket.userData.estado = 'normal';
-                        }
-                    }
+        // Stats Jugadores
+        await db.query(`UPDATE users SET total_victorias = total_victorias + 1, victorias_disputa = victorias_disputa + 1, total_partidas = total_partidas + 1 WHERE id = $1`, [winner.id]);
+        const perdedor = (winner.username === match.jugador1) ? match.jugador2 : match.jugador1;
+        await db.query(`UPDATE users SET total_derrotas = total_derrotas + 1, derrotas_disputa = derrotas_disputa + 1, total_partidas = total_partidas + 1 WHERE username = $1`, [perdedor]);
+
+        if (culpableNombre && culpableNombre !== 'nadie') {
+            await db.query(`UPDATE users SET faltas = faltas + 1 WHERE username = $1`, [culpableNombre]);
+        }
+
+        // Cerrar
+        await db.query(`UPDATE matches SET estado = 'finalizada', ganador = $1 WHERE id = $2`, [ganadorNombre, matchId]);
+        await db.query(`UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE username IN ($1, $2)`, [match.jugador1, match.jugador2]);
+
+        logClash(`👮‍♂️ JUEZ: Ganó ${ganadorNombre}.`);
+
+        // Notificar Sockets
+        for (const [_, s] of io.sockets.sockets) {
+            if (s.userData) {
+                if (s.userData.id == winner.id) {
+                    s.userData.saldo = parseFloat(s.userData.saldo) + premio;
+                    s.emit('actualizar_saldo', s.userData.saldo);
                 }
-
-                // 2. Contabilidad Admin
-                // Dividimos la comisión para el LTV de ambos jugadores (Independiente del resultado)
-                const utilidadPorJugador = comision / 2;
-                db.run(`UPDATE users SET ganancia_generada = ganancia_generada + ? WHERE username IN (?, ?)`, 
-                    [utilidadPorJugador, match.jugador1, match.jugador2]);
-
-                // Guardar en Bóveda
-                db.run(`INSERT INTO admin_wallet (monto, razon, detalle) VALUES (?, ?, ?)`, 
-                    [comision, 'comision_disputa', `Resolución Match #${matchId}`]);
-
-                // 3. CASTIGAR AL CULPABLE (Nuevo)
-                if (culpableNombre && culpableNombre !== 'nadie') {
-                    db.run(`UPDATE users SET faltas = faltas + 1 WHERE username = ?`, [culpableNombre], (err) => {
-                        if (!err) console.log(`⚠️ Falta sumada a ${culpableNombre}`);
-                    });
+                if (s.userData.username === match.jugador1 || s.userData.username === match.jugador2) {
+                    s.emit('flujo_completado');
+                    s.userData.estado = 'normal';
                 }
-
-                // 4. Cerrar Partida
-                db.run(`UPDATE matches SET estado = 'finalizada', ganador = ? WHERE id = ?`, [ganadorNombre, matchId]);
-
-                // 5. Liberar Estados BD
-                db.run(`UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE username IN (?, ?)`, 
-                    [match.jugador1, match.jugador2]);
-
-                logClash(`👮‍♂️ JUEZ: Ganó ${ganadorNombre}. Culpable: ${culpableNombre}.`);
-                res.json({success: true, message: 'Sentencia aplicada'});
-            });
-        });
-    });
+            }
+        }
+        res.json({success: true});
+    } catch(e) { res.status(500).json({error: 'Error disputa'}); }
 });
 
-// --- ESTADÍSTICAS FINANCIERAS (NUEVO) ---
-app.get('/api/admin/stats', (req, res) => {
-    // 1. Total Dinero de Usuarios (Pasivo)
-    db.get(`SELECT SUM(saldo) as total_usuarios FROM users WHERE tipo_suscripcion != 'admin'`, [], (err, rowUser) => {
-        // 2. Total Dinero Ganado por la Casa (Activo)
-        db.get(`SELECT SUM(monto) as total_admin FROM admin_wallet`, [], (err, rowAdmin) => {
-            // 3. Lista de usuarios con TODAS las estadísticas
-            db.all(`SELECT * FROM users ORDER BY ganancia_generada DESC`, [], (err, users) => {
-                res.json({
-                    totalUsuarios: rowUser.total_usuarios || 0,
-                    totalGanancias: rowAdmin.total_admin || 0,
-                    listaUsuarios: users
-                });
-            });
-        });
-    });
-});
 
-// --- SOCKETS ---
+// --- SOCKETS (Lógica PG) ---
 
 io.on('connection', (socket) => {
-    // --- VINCULAR USUARIO Y RECONEXIÓN INTELIGENTE (CORREGIDO) ---
-    socket.on('registrar_socket', (user) => {
+    // REGISTRAR
+    socket.on('registrar_socket', async (user) => {
         socket.userData = user;
-        console.log(`🔗 Socket ${socket.id} intentando registrar a: ${user.username} (ID: ${user.id})`);
-
-        // VERIFICAR SI ESTABA EN UNA SALA ACTIVA
+        // Recuperar sala si existe
         if (user.sala_actual && activeMatches[user.sala_actual]) {
             const salaId = user.sala_actual;
             const match = activeMatches[salaId];
-            const userId = user.id;
 
-            console.log(`   -> El usuario pertenece a la sala activa: ${salaId}`);
-
-            // 1. CANCELAR TEMPORIZADOR (SALVAVIDAS)
-            if (match.disconnectTimers && match.disconnectTimers[userId]) {
-                console.log(`   -> ⏰ ¡Temporizador encontrado! Cancelando desconexión para ${user.username}...`);
-                clearTimeout(match.disconnectTimers[userId]);
-                delete match.disconnectTimers[userId];
+            // Cancelar timer
+            if (match.disconnectTimers && match.disconnectTimers[user.id]) {
+                clearTimeout(match.disconnectTimers[user.id]);
+                delete match.disconnectTimers[user.id];
+                socket.to(salaId).emit('rival_reconectado');
             }
 
-            // 2. RECONECTAR SOCKET A LA SALA
             socket.join(salaId);
             socket.currentRoom = salaId;
 
-            // Actualizar la referencia del socket en la partida (CRÍTICO)
-            const index = match.players.findIndex(p => p.userData && p.userData.id == userId);
+            const idx = match.players.findIndex(p => p.userData.id == user.id);
+            if (idx !== -1) match.players[idx] = socket;
 
-            if (index !== -1) {
-                match.players[index] = socket;
-                console.log(`   -> Socket actualizado en la memoria del match.`);
-            } else {
-                console.log(`   -> ⚠️ ERROR: No se encontró al jugador en la lista del match.`);
-            }
+            // Datos Rival
+            const rivalSocket = match.players.find(p => p.userData.id != user.id);
+            let rivalData = rivalSocket?.userData || { username: "Rival", saldo: 0 };
+            let maxAp = match.iniciado ? match.apuesta : Math.min(user.saldo, rivalData.saldo);
 
-            // 3. PREPARAR DATOS DEL RIVAL (Buscar datos frescos)
-            const rivalSocket = match.players.find(p => p.userData && p.userData.id != userId);
+            // Recuperar Historial Chat Privado
+            const msgs = await db.query(`SELECT * FROM messages WHERE canal = $1 ORDER BY id ASC`, [salaId]);
 
-            let rivalDatos = { username: "Rival", total_partidas: 0, total_victorias: 0, faltas: 0, salidas_chat: 0 };
-            let saldoRival = 0;
-
-            if (rivalSocket && rivalSocket.userData) {
-                rivalDatos = rivalSocket.userData;
-                saldoRival = rivalSocket.userData.saldo;
-            }
-
-            // Calcular tope de apuesta de nuevo
-            let maxApuesta = 0;
-            if (match.iniciado) {
-                maxApuesta = match.apuesta; 
-            } else {
-                maxApuesta = Math.min(user.saldo, saldoRival);
-            }
-
-            // 4. ENVIAR DATOS DE RESTAURACIÓN AL CLIENTE RECONECTADO
             socket.emit('restaurar_partida', {
-                salaId: salaId,
-                rival: rivalDatos,
-                maxApuesta: maxApuesta,
-                estado: user.estado,
-                iniciado: match.iniciado
+                salaId, rival: rivalData, maxApuesta: maxAp, estado: user.estado, iniciado: match.iniciado,
+                historial: msgs.rows
             });
-
-            // 5. AVISAR AL RIVAL QUE VOLVIMOS (Usando io.to para asegurar que llegue)
-            io.to(salaId).emit('rival_reconectado', { username: user.username });
-
-            console.log(`   -> 🔄 Datos de restauración enviados. Rival avisado.`);
-        } else {
-            console.log(`   -> El usuario no tiene sala activa o la sala ya no existe.`);
         }
     });
-    // FUNCIÓN CENTRAL DE CANCELACIÓN (REFACTORIZADA - No depende de sockets muertos)
-    const handleCancelMatch = (socket, motivo) => {
-        const salaId = socket.currentRoom;
 
-        if (salaId && activeMatches[salaId]) {
-            const match = activeMatches[salaId];
-
-            // Si ya inició, no cancelamos la partida
-            if (match.iniciado) return;
-
-            // Identificar al culpable para sumarle la estadística
-            if (socket.userData) {
-                const uid = socket.userData.id;
-                db.run(`UPDATE users SET salidas_chat = salidas_chat + 1 WHERE id = ?`, [uid]);
-
-                if (motivo === 'Oprimió X') {
-                    db.run(`UPDATE users SET salidas_x = salidas_x + 1 WHERE id = ?`, [uid]);
-                } else if (motivo === 'Salió del chat') {
-                    db.run(`UPDATE users SET salidas_canal = salidas_canal + 1 WHERE id = ?`, [uid]);
-                } else if (motivo.includes('Desconexión')) {
-                    db.run(`UPDATE users SET salidas_desconexion = salidas_desconexion + 1 WHERE id = ?`, [uid]);
-                }
-            }
-
-            // Recopilar nombres de usuarios de forma segura
-            const usernames = match.players
-                .filter(p => p && p.userData)
-                .map(p => p.userData.username);
-            const usersStr = usernames.join(' vs ') || 'Desconocidos';
-            const culpable = socket.userData ? socket.userData.username : 'Desconexión';
-
-            logClash(`⚠️ Cancelada (${usersStr}): ${motivo} (Causa: ${culpable})`);
-
-            // Notificar a todos usando io.to (funciona incluso con sockets muertos)
-            io.to(salaId).emit('match_cancelado', { motivo: motivo || 'Abandonado.' });
-
-            // Limpiar jugadores de forma segura (verificar que el socket esté vivo)
-            match.players.forEach(j => { 
-                if (j) {
-                    // Solo intentar leave si el socket está conectado
-                    if (j.connected && j.leave) {
-                        try { j.leave(salaId); } catch(e) { }
-                    }
-                    j.currentRoom = null;
-                    if (j.userData) {
-                        db.run(`UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id = ?`, [j.userData.id]); 
-                    }
-                }
-            });
-
-            delete activeMatches[salaId];
-        }
-    };
-
-    // --- AHORA SÍ, LOS EVENTOS ---
-
-    // Historial
+    // HISTORIAL GENERAL
     ['anuncios', 'general', 'clash', 'clash_pics', 'clash_logs'].forEach(canal => {
-        db.all(`SELECT * FROM (SELECT * FROM messages WHERE canal = ? ORDER BY id DESC LIMIT 50) ORDER BY id ASC`, [canal], (err, rows) => {
-            if (!err && rows) socket.emit('historial_chat', { canal: canal, mensajes: rows });
-        });
+        db.query(`SELECT * FROM (SELECT * FROM messages WHERE canal = $1 ORDER BY id DESC LIMIT 50) t ORDER BY id ASC`, [canal])
+            .then(res => socket.emit('historial_chat', { canal, mensajes: res.rows }));
     });
 
-    socket.on('mensaje_chat', (data) => {
+    // MENSAJES
+    socket.on('mensaje_chat', async (data) => {
         const fecha = new Date().toISOString();
-        const tipo = data.tipo || 'texto';
-        db.run(`INSERT INTO messages (canal, usuario, texto, tipo, fecha) VALUES (?, ?, ?, ?, ?)`, 
-            [data.canal, data.usuario, data.texto, tipo, fecha]);
+        await db.query(`INSERT INTO messages (canal, usuario, texto, tipo, fecha) VALUES ($1, $2, $3, $4, $5)`,
+            [data.canal, data.usuario, data.texto, data.tipo || 'texto', fecha]);
         io.emit('mensaje_chat', { ...data, fecha });
 
-        // Liberación Paso 2 (Fotos)
-        if (data.canal === 'clash_pics' && tipo === 'imagen') {
-            db.get(`SELECT estado, paso_juego FROM users WHERE username = ?`, [data.usuario], (err, user) => {
-                if (user && user.estado === 'subiendo_evidencia') {
-                    db.run(`UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE username = ?`, [data.usuario]);
-                    socket.emit('flujo_completado');
-                    logClash(`✅ ${data.usuario} completó la evidencia.`);
-                }
-            });
+        // Liberación Foto
+        if (data.canal === 'clash_pics' && data.tipo === 'imagen') {
+            const uRes = await db.query(`SELECT estado FROM users WHERE username = $1`, [data.usuario]);
+            if (uRes.rows[0]?.estado === 'subiendo_evidencia') {
+                await db.query(`UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE username = $1`, [data.usuario]);
+                socket.emit('flujo_completado');
+                logClash(`✅ ${data.usuario} subió evidencia.`);
+            }
         }
     });
 
-    // Matchmaking
-    // --- MATCHMAKING CON ESTADÍSTICAS ---
-    socket.on('buscar_partida', (usuario) => {
-        // 1. Traer TODOS los datos frescos (Saldo + Estadísticas)
-        db.get(`SELECT * FROM users WHERE id = ?`, [usuario.id], (err, row) => {
-            if (err || !row || row.saldo < 5000) { 
-                socket.emit('error_busqueda', 'Saldo insuficiente o error de cuenta.'); 
-                return; 
-            }
+    // BUSCAR
+    socket.on('buscar_partida', async (usuario) => {
+        const uRes = await db.query(`SELECT * FROM users WHERE id = $1`, [usuario.id]);
+        const row = uRes.rows[0];
+        if (!row || parseFloat(row.saldo) < 5000) return socket.emit('error_busqueda', 'Saldo insuficiente');
 
-            // Actualizamos los datos en el socket con lo que trajo la BD
-            socket.userData = row; 
+        socket.userData = row;
+        if (colaEsperaClash.find(s => s.id === socket.id)) return;
 
-            const yaEsta = colaEsperaClash.find(s => s.id === socket.id);
-            if (yaEsta) return;
+        colaEsperaClash.push(socket);
+        await db.query(`UPDATE users SET estado = 'buscando_partida' WHERE id = $1`, [usuario.id]);
+        if (colaEsperaClash.length === 1) logClash(`🔍 ${row.username} busca...`);
 
-            colaEsperaClash.push(socket);
-            db.run(`UPDATE users SET estado = 'buscando_partida' WHERE id = ?`, [usuario.id]);
+        if (colaEsperaClash.length >= 2) {
+            const j1 = colaEsperaClash.shift();
+            const j2 = colaEsperaClash.shift();
+            const salaId = 'sala_' + Date.now();
 
-            if (colaEsperaClash.length === 1) logClash(`🔍 ${row.username} busca rival...`);
+            j1.currentRoom = salaId; j2.currentRoom = salaId;
+            j1.join(salaId); j2.join(salaId);
+            activeMatches[salaId] = { players: [j1, j2], apuesta: 0, iniciado: false };
 
-            if (colaEsperaClash.length >= 2) {
-                const j1 = colaEsperaClash.shift();
-                const j2 = colaEsperaClash.shift();
-                const salaId = 'sala_' + Date.now();
+            const maxAp = Math.min(parseFloat(j1.userData.saldo), parseFloat(j2.userData.saldo));
+            await db.query(`UPDATE users SET estado = 'partida_encontrada', sala_actual = $1 WHERE id IN ($2, $3)`, 
+                [salaId, j1.userData.id, j2.userData.id]);
 
-                j1.currentRoom = salaId; j2.currentRoom = salaId;
-                j1.join(salaId); j2.join(salaId);
-
-                activeMatches[salaId] = { players: [j1, j2], apuesta: 0, iniciado: false };
-                const maxApuesta = Math.min(j1.userData.saldo, j2.userData.saldo);
-
-                db.run(`UPDATE users SET estado = 'partida_encontrada' WHERE id IN (?, ?)`, [j1.userData.id, j2.userData.id]);
-
-                logClash(`⚔️ ¡PARTIDA ENCONTRADA! ${j1.userData.username} VS ${j2.userData.username}`);
-
-                // ENVIAMOS LOS DATOS COMPLETOS DE AMBOS JUGADORES PARA CALCULAR ESTADÍSTICAS EN EL FRONTEND
-                io.to(salaId).emit('partida_encontrada', { 
-                    salaId, 
-                    p1: j1.userData, // Datos completos jugador 1
-                    p2: j2.userData, // Datos completos jugador 2
-                    maxApuesta 
-                });
-            }
-        });
-    });
-
-    socket.on('cancelar_busqueda', () => {
-        if (socket.userData) {
-            colaEsperaClash = colaEsperaClash.filter(s => s.id !== socket.id);
-            db.run(`UPDATE users SET estado = 'normal' WHERE id = ?`, [socket.userData.id]);
-            logClash(`🚫 ${socket.userData.username} canceló búsqueda.`);
+            logClash(`⚔️ MATCH: ${j1.userData.username} vs ${j2.userData.username}`);
+            io.to(salaId).emit('partida_encontrada', { salaId, p1: j1.userData, p2: j2.userData, maxApuesta: maxAp });
         }
     });
 
-    socket.on('negociacion_live', (data) => { socket.to(data.salaId).emit('actualizar_negociacion', data); });
+    socket.on('cancelar_busqueda', async () => {
+        colaEsperaClash = colaEsperaClash.filter(s => s.id !== socket.id);
+        if(socket.userData) {
+            await db.query(`UPDATE users SET estado = 'normal' WHERE id = $1`, [socket.userData.id]);
+            logClash(`🚫 ${socket.userData.username} canceló.`);
+        }
+    });
 
-    // --- INICIO DE JUEGO BLINDADO (DOBLE CONFIRMACIÓN) ---
-    socket.on('iniciar_juego', (data) => {
-        const salaId = socket.currentRoom; 
+    socket.on('negociacion_live', (data) => socket.to(data.salaId).emit('actualizar_negociacion', data));
+
+    // INICIO JUEGO
+    socket.on('iniciar_juego', async (data) => {
+        const salaId = socket.currentRoom;
         if (salaId && activeMatches[salaId]) {
             const match = activeMatches[salaId];
-
-            // Si ya inició, ignorar totalmente para no descontar doble
             if (match.iniciado) return;
 
-            // Guardar la intención de este usuario
             if (!match.votosInicio) match.votosInicio = {};
-            match.votosInicio[socket.userData.id] = {
-                listo: true,
-                dinero: parseInt(data.dinero),
-                modo: data.modo
-            };
-
-            // Avisar al rival que uno ya está listo (para que se ponga las pilas)
+            match.votosInicio[socket.userData.id] = { listo: true, dinero: parseInt(data.dinero), modo: data.modo };
             socket.to(salaId).emit('rival_listo_inicio');
 
-            // Verificar si AMBOS están listos
             const ids = match.players.map(p => p.userData.id);
-
             if (match.votosInicio[ids[0]] && match.votosInicio[ids[1]]) {
+                const ap1 = match.votosInicio[ids[0]].dinero;
+                const ap2 = match.votosInicio[ids[1]].dinero;
+                if (ap1 !== ap2) return io.to(salaId).emit('error_negociacion', 'Montos distintos');
 
-                // Validar que ambos pusieron el mismo dinero (seguridad extra)
-                const apuesta1 = match.votosInicio[ids[0]].dinero;
-                const apuesta2 = match.votosInicio[ids[1]].dinero;
+                match.iniciado = true;
+                match.apuesta = ap1;
+                match.reportes = {};
+                const modo = match.votosInicio[ids[0]].modo || "N/A";
 
-                if (apuesta1 !== apuesta2) {
-                    io.to(salaId).emit('error_negociacion', 'Los montos no coinciden. Negocien de nuevo.');
-                    match.votosInicio = {}; // Resetear votos
-                    return;
+                // Descuento
+                for (const p of match.players) {
+                    await db.query(`UPDATE users SET saldo = saldo - $1, estado = 'jugando_partida', paso_juego = 1 WHERE id = $2`, 
+                        [match.apuesta, p.userData.id]);
+                    p.userData.saldo -= match.apuesta;
+                    p.emit('actualizar_saldo', p.userData.saldo);
                 }
 
-                // --- AHORA SÍ INICIAMOS DE VERDAD ---
-                match.iniciado = true; // Bloqueo inmediato
-                match.apuesta = apuesta1;
-                const modoFinal = match.votosInicio[ids[0]].modo;
-                match.reportes = {}; 
+                const ins = await db.query(`INSERT INTO matches (jugador1, jugador2, modo, apuesta) VALUES ($1, $2, $3, $4) RETURNING id`,
+                    [match.players[0].userData.username, match.players[1].userData.username, modo, match.apuesta]);
+                match.dbId = ins.rows[0].id;
 
-                // 1. DESCONTAR SALDO (Una sola vez por usuario)
-                match.players.forEach(p => {
-                    // Restamos en BD
-                    db.run(`UPDATE users SET saldo = saldo - ?, estado = 'jugando_partida', paso_juego = 1, sala_actual = ? WHERE id = ?`, 
-                        [match.apuesta, salaId, p.userData.id]);
-
-                    // Actualizamos memoria y avisamos al cliente el nuevo saldo real
-                    p.userData.saldo = p.userData.saldo - match.apuesta;
-                    p.emit('actualizar_saldo', p.userData.saldo); // <--- ESTO ACTUALIZA TU PANTALLA AL INSTANTE
-                });
-
-                // 2. CREAR PARTIDA EN BD Y AVISAR
-                db.run(`INSERT INTO matches (jugador1, jugador2, modo, apuesta) VALUES (?, ?, ?, ?)`, 
-                    [match.players[0].userData.username, match.players[1].userData.username, modoFinal, match.apuesta], 
-                    function(err) {
-                        const num = this.lastID;
-                        match.dbId = num;
-
-                        io.to(salaId).emit('juego_iniciado', { monto: match.apuesta, matchId: num });
-
-                        logClash(`🎮 PARTIDA #${num}: ${match.players[0].userData.username} vs ${match.players[1].userData.username} | ${modoFinal} | $${match.apuesta}`);
-                    }
-                );
+                io.to(salaId).emit('juego_iniciado', { monto: match.apuesta, matchId: match.dbId });
+                logClash(`🎮 INICIO #${match.dbId} | $${match.apuesta}`);
             } else {
-                // Solo uno está listo, le avisamos que espere
                 socket.emit('esperando_inicio_rival');
             }
         }
     });
 
-    // --- REPORTE DE RESULTADOS (CORREGIDO: NO LIBERA HASTA SUBIR FOTO) ---
-    socket.on('reportar_resultado', (data) => {
+    // REPORTE
+    socket.on('reportar_resultado', async (data) => {
         const salaId = socket.currentRoom;
         const match = activeMatches[salaId];
         if (!match || !match.iniciado) return;
 
-        // 1. Asegurar que el usuario pase al Paso 2 (Visualmente y en BD)
-        db.run(`UPDATE users SET estado = 'subiendo_evidencia', paso_juego = 2 WHERE id = ?`, [data.usuarioId], (err) => {
-            if(!err) socket.emit('necesita_evidencia');
-        });
+        await db.query(`UPDATE users SET estado = 'subiendo_evidencia', paso_juego = 2 WHERE id = $1`, [data.usuarioId]);
+        socket.emit('necesita_evidencia');
 
-        // 2. Guardar el voto
         match.reportes[data.usuarioId] = data.resultado;
-
         const ids = match.players.map(p => p.userData.id);
         const rep1 = match.reportes[ids[0]];
         const rep2 = match.reportes[ids[1]];
 
-        // 3. Verificar si ambos votaron
         if (rep1 && rep2) {
             if ((rep1 === 'gane' && rep2 === 'perdi') || (rep1 === 'perdi' && rep2 === 'gane')) {
-                // --- CONSENSO (SÍ se paga, pero NO se libera aún) ---
                 const idGanador = (rep1 === 'gane') ? ids[0] : ids[1];
-                const premio = (match.apuesta * 2) * 0.80; // 20% Comisión
-                const comision = (match.apuesta * 2) * 0.20;
-                // --- NUEVO: ACTUALIZAR GANANCIA GENERADA POR USUARIO ---
-                const utilidadPorJugador = comision / 2;
-                match.players.forEach(p => {
-                    db.run(`UPDATE users SET ganancia_generada = ganancia_generada + ? WHERE id = ?`, 
-                        [utilidadPorJugador, p.userData.id]);
-                });
+                const pozo = match.apuesta * 2;
+                const comision = pozo * 0.20;
+                const premio = pozo - comision;
 
-                // GUARDAR GANANCIA EN BÓVEDA ADMIN
-                db.run(`INSERT INTO admin_wallet (monto, razon, detalle) VALUES (?, ?, ?)`, 
-                    [comision, 'comision_match', `Match #${match.dbId}`]);
-                // A. Pagar al ganador
-                db.run(`UPDATE users SET saldo = saldo + ? WHERE id = ?`, [premio, idGanador], () => {
+                // Pagar
+                await db.query(`UPDATE users SET saldo = saldo + $1 WHERE id = $2`, [premio, idGanador]);
 
-                    // --- ESTADÍSTICAS: GANADOR (Normal) ---
-                    db.run(`UPDATE users SET total_victorias = total_victorias + 1, victorias_normales = victorias_normales + 1, total_partidas = total_partidas + 1 WHERE id = ?`, [idGanador]);
+                // Stats
+                const util = comision / 2;
+                await db.query(`UPDATE users SET ganancia_generada = ganancia_generada + $1 WHERE id IN ($2, $3)`, 
+                    [util, ids[0], ids[1]]);
 
-                    // --- ESTADÍSTICAS: PERDEDOR (Normal) ---
-                    const idPerdedor = (idGanador === ids[0]) ? ids[1] : ids[0];
-                    db.run(`UPDATE users SET total_derrotas = total_derrotas + 1, derrotas_normales = derrotas_normales + 1, total_partidas = total_partidas + 1 WHERE id = ?`, [idPerdedor]);
+                await db.query(`UPDATE users SET total_victorias = total_victorias + 1, victorias_normales = victorias_normales + 1, total_partidas = total_partidas + 1 WHERE id = $1`, [idGanador]);
+                const idPerdedor = (idGanador == ids[0]) ? ids[1] : ids[0];
+                await db.query(`UPDATE users SET total_derrotas = total_derrotas + 1, derrotas_normales = derrotas_normales + 1, total_partidas = total_partidas + 1 WHERE id = $1`, [idPerdedor]);
 
-                    // ... (Aquí sigue la actualización visual de saldo y logs que ya tenías) ...
-                    const socketGanador = match.players.find(p => p.userData.id === idGanador);
-                    if (socketGanador) {
-                        socketGanador.userData.saldo += premio;
-                        socketGanador.emit('actualizar_saldo', socketGanador.userData.saldo);
-                    }
+                await db.query(`INSERT INTO admin_wallet (monto, razon, detalle) VALUES ($1, $2, $3)`, [comision, 'comision_match', `Match #${match.dbId}`]);
 
-                    // B. Registrar ganador en historial de partidas
-                    const nombreGanador = socketGanador ? socketGanador.userData.username : "Jugador";
-                    db.run(`UPDATE matches SET estado = 'finalizada', ganador = ? WHERE id = ?`, [nombreGanador, match.dbId]);
-
-                    logClash(`🏆 GANADOR Partida #${match.dbId}: ${nombreGanador} (Se pagaron $${premio})`);
-
-                    // C. ¡IMPORTANTE! NO LIBERAMOS A LOS JUGADORES AQUÍ.
-                    // Ellos siguen en estado 'subiendo_evidencia'.
-                    // La liberación ocurrirá en el evento 'mensaje_chat' cuando detecte la foto.
-
-                    // Opcional: Borrar de memoria activa para ahorrar RAM, 
-                    // ya que la validación de fotos es por base de datos.
-                    delete activeMatches[salaId];
-                });
-
-            } else {
-                // --- DISPUTA ---
-                db.run(`UPDATE matches SET estado = 'disputa' WHERE id = ?`, [match.dbId]);
-                // --- NUEVO: NOTIFICAR CORREO ---
-                notificarAdmin(
-                    "¡DISPUTA EN CURSO!", 
-                    `Conflicto en la Partida #${match.dbId}. Ambos jugadores reportaron resultados diferentes. Se requiere tu intervención inmediata.`
-                );
-                logClash(`🚨 DISPUTA Partida #${match.dbId}.`);
-                io.to(salaId).emit('error_disputa', "CONFLICTO: Resultados no coinciden.");
-            }
-        }
-    });
-
-    // Evento para cancelar manualmente (Botón X o Salir)
-    socket.on('cancelar_match', (data) => {
-        handleCancelMatch(socket, data ? data.motivo : 'Salida manual');
-    });
-
-    socket.on('mensaje_privado', (data) => { 
-        try { 
-            if (data && data.salaId) { 
-                data.fecha = new Date().toISOString(); 
-                io.to(data.salaId).emit('mensaje_privado', data); 
-            } 
-        } catch (e) {} 
-    });
-
-    socket.on('disconnect', () => {
-        // Limpiar cola de espera (eso es inmediato)
-        colaEsperaClash = colaEsperaClash.filter(s => s.id !== socket.id);
-
-        // LÓGICA DE GRACIA (15 SEGUNDOS)
-        const salaId = socket.currentRoom;
-        const disconnectedUsername = socket.userData ? socket.userData.username : null;
-        const disconnectedUserId = socket.userData ? socket.userData.id : null;
-
-        if (salaId && activeMatches[salaId] && disconnectedUserId) {
-            const match = activeMatches[salaId];
-
-            // Si la partida ya inició (dinero apostado), NO cancelamos por desconexión
-            // La partida sigue viva para que puedan volver
-            if (match.iniciado) {
-                console.log(`🔌 ${disconnectedUsername} desconectado de partida INICIADA. No se cancela.`);
-                io.to(salaId).emit('rival_desconectado', { tiempo: 15, mensaje: 'Tu rival se desconectó. Esperando...' });
-                return;
-            }
-
-            console.log(`🔌 ${disconnectedUsername} se desconectó. Esperando 15s...`);
-
-            // Inicializar objeto de timers si no existe
-            if (!match.disconnectTimers) match.disconnectTimers = {};
-
-            // Avisar al rival que espere (usando io.to en lugar del socket muerto)
-            io.to(salaId).emit('rival_desconectado', { tiempo: 15 });
-
-            // ACTIVAR TEMPORIZADOR
-            match.disconnectTimers[disconnectedUserId] = setTimeout(() => {
-                // Si este código se ejecuta, es que NO volvió a tiempo.
-                console.log(`⏰ Tiempo agotado para ${disconnectedUsername}. Cancelando partida.`);
-
-                if (activeMatches[salaId]) {
-                    const matchToCancel = activeMatches[salaId];
-
-                    // Sumar estadística de huida por desconexión
-                    db.run(`UPDATE users SET salidas_chat = salidas_chat + 1, salidas_desconexion = salidas_desconexion + 1 WHERE id = ?`, [disconnectedUserId]);
-
-                    logClash(`⚠️ Cancelada: ${disconnectedUsername} no volvió a tiempo (15s)`);
-
-                    // Notificar a todos en la sala usando io.to (funciona aunque el socket original murió)
-                    io.to(salaId).emit('match_cancelado', { motivo: `${disconnectedUsername} no volvió a tiempo` });
-
-                    // Liberar a todos los jugadores
-                    matchToCancel.players.forEach(j => { 
-                        if (j && j.leave) j.leave(salaId);
-                        if (j) j.currentRoom = null; 
-                        if (j && j.userData) {
-                            db.run(`UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id = ?`, [j.userData.id]); 
-                        }
-                    });
-
-                    delete activeMatches[salaId];
+                // Actualizar visual Ganador
+                const winSocket = match.players.find(p => p.userData.id == idGanador);
+                if (winSocket) {
+                    winSocket.userData.saldo += premio;
+                    winSocket.emit('actualizar_saldo', winSocket.userData.saldo);
                 }
-            }, 15000); // 15 segundos
+
+                const winnerName = winSocket ? winSocket.userData.username : "Ganador";
+                await db.query(`UPDATE matches SET estado = 'finalizada', ganador = $1 WHERE id = $2`, [winnerName, match.dbId]);
+                logClash(`🏆 GANADOR #${match.dbId}: ${winnerName}`);
+
+                delete activeMatches[salaId]; // Liberación al subir foto
+            } else {
+                // Disputa
+                await db.query(`UPDATE matches SET estado = 'disputa' WHERE id = $1`, [match.dbId]);
+                logClash(`🚨 DISPUTA #${match.dbId}`);
+                io.to(salaId).emit('error_disputa', 'CONFLICTO');
+            }
+        }
+    });
+
+    // Mensaje Privado (Con Persistencia)
+    socket.on('mensaje_privado', async (data) => {
+        try {
+            if (data && data.salaId) {
+                const fecha = new Date().toISOString();
+                await db.query(`INSERT INTO messages (canal, usuario, texto, tipo, fecha) VALUES ($1, $2, $3, $4, $5)`,
+                    [data.salaId, data.usuario, data.texto, 'texto', fecha]);
+                data.fecha = fecha;
+                io.to(data.salaId).emit('mensaje_privado', data);
+            }
+        } catch (e) {}
+    });
+
+    // CANCELAR
+    const handleCancelMatch = async (socket, motivo) => {
+        const salaId = socket.currentRoom;
+        if (salaId && activeMatches[salaId]) {
+            const match = activeMatches[salaId];
+            if (match.iniciado) return; // No cancelar si ya inició
+
+            // Stats Huida
+            if (socket.userData) {
+                const uid = socket.userData.id;
+                await db.query(`UPDATE users SET salidas_chat = salidas_chat + 1 WHERE id = $1`, [uid]);
+            }
+
+            io.to(salaId).emit('match_cancelado', { motivo });
+
+            for (const p of match.players) {
+                p.leave(salaId); p.currentRoom = null;
+                if (p.userData) await db.query(`UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id = $1`, [p.userData.id]);
+            }
+            delete activeMatches[salaId];
+        }
+    };
+    socket.on('cancelar_match', (data) => handleCancelMatch(socket, data?.motivo));
+
+    // DISCONNECT (Gracia)
+    socket.on('disconnect', () => {
+        colaEsperaClash = colaEsperaClash.filter(s => s.id !== socket.id);
+        const salaId = socket.currentRoom;
+        if (salaId && activeMatches[salaId]) {
+            const match = activeMatches[salaId];
+            if (!match.iniciado) { handleCancelMatch(socket, 'Desconexión lobby'); return; }
+
+            const uid = socket.userData?.id;
+            if (uid) {
+                if (!match.disconnectTimers) match.disconnectTimers = {};
+                socket.to(salaId).emit('rival_desconectado', { tiempo: 15 });
+                match.disconnectTimers[uid] = setTimeout(() => {
+                    // Timeout: Cancelar y perder
+                    if (activeMatches[salaId]) {
+                        const pName = socket.userData.username;
+                        logClash(`⚠️ ABANDONO #${match.dbId} por ${pName}`);
+                        io.to(salaId).emit('match_cancelado', { motivo: 'Rival abandonó (Timeout)' });
+                        // Limpieza final
+                         match.players.forEach(p => {
+                            if(p.userData) db.query(`UPDATE users SET estado='normal', sala_actual=NULL, paso_juego=0 WHERE id=$1`, [p.userData.id]);
+                         });
+                        delete activeMatches[salaId];
+                    }
+                }, 15000);
+            }
         }
     });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Server OK en puerto ${PORT}`);
-});
-
-
+server.listen(PORT, '0.0.0.0', () => { console.log(`✅ Server OK en ${PORT}`); });
