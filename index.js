@@ -532,24 +532,49 @@ io.on('connection', (socket) => {
         } catch (e) {}
     });
 
-    // CANCELAR
+    // FUNCIÓN CENTRAL DE CANCELACIÓN (REPARADA CON LOGS Y ESTADÍSTICAS)
     const handleCancelMatch = async (socket, motivo) => {
         const salaId = socket.currentRoom;
+
         if (salaId && activeMatches[salaId]) {
             const match = activeMatches[salaId];
-            if (match.iniciado) return; // No cancelar si ya inició
 
-            // Stats Huida
+            // Si ya inició, no cancelamos la partida (solo desconectamos socket)
+            if (match.iniciado) return;
+
+            // 1. Identificar al culpable para sumarle la estadística y el nombre
+            let culpableName = 'Desconexión';
+
             if (socket.userData) {
                 const uid = socket.userData.id;
+                culpableName = socket.userData.username;
+
+                // Sumar al total general de salidas
                 await db.query(`UPDATE users SET salidas_chat = salidas_chat + 1 WHERE id = $1`, [uid]);
+
+                // Sumar al contador específico según el motivo
+                if (motivo === 'Oprimió X') {
+                    await db.query(`UPDATE users SET salidas_x = salidas_x + 1 WHERE id = $1`, [uid]);
+                } else if (motivo === 'Salió del chat') { // Navegación
+                    await db.query(`UPDATE users SET salidas_canal = salidas_canal + 1 WHERE id = $1`, [uid]);
+                } else if (motivo && motivo.includes('Desconexión')) {
+                    await db.query(`UPDATE users SET salidas_desconexion = salidas_desconexion + 1 WHERE id = $1`, [uid]);
+                }
             }
 
-            io.to(salaId).emit('match_cancelado', { motivo });
+            // 2. Generar el LOG para el registro (¡ESTO ES LO QUE FALTABA!)
+            const usersStr = match.players.map(p => p.userData ? p.userData.username : '???').join(' vs ');
+            logClash(`⚠️ Cancelada (${usersStr}): ${motivo} (Causa: ${culpableName})`);
+
+            // 3. Notificar y liberar
+            io.to(salaId).emit('match_cancelado', { motivo: motivo || 'Abandonado.' });
 
             for (const p of match.players) {
-                p.leave(salaId); p.currentRoom = null;
-                if (p.userData) await db.query(`UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id = $1`, [p.userData.id]);
+                p.leave(salaId); 
+                p.currentRoom = null;
+                if (p.userData) {
+                    await db.query(`UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id = $1`, [p.userData.id]);
+                }
             }
             delete activeMatches[salaId];
         }
