@@ -224,20 +224,28 @@ app.post('/api/admin/transaction/process', async (req, res) => {
     try {
         const tRes = await db.query(`SELECT * FROM transactions WHERE id = $1`, [transId]);
         const trans = tRes.rows[0];
+
         if (!trans || trans.estado !== 'pendiente') return res.status(400).json({error: 'Inválida'});
 
+        // Función de notificación interna
         const notificar = (uid, msg, saldo) => {
             for (const [_, s] of io.sockets.sockets) {
                 if (s.userData && s.userData.id == uid) {
                     s.emit('transaccion_completada', { mensaje: msg });
-                    if (saldo !== null) { s.userData.saldo = saldo; s.emit('actualizar_saldo', saldo); }
+                    // Solo enviamos saldo si tiene un valor real (número)
+                    if (saldo !== null && saldo !== undefined) { 
+                        s.userData.saldo = parseFloat(saldo); 
+                        s.emit('actualizar_saldo', s.userData.saldo); 
+                    }
                     break;
                 }
             }
         };
 
         if (action === 'reject') {
+            // RECHAZAR
             if (trans.tipo === 'retiro') {
+                // Devolver dinero
                 await db.query(`UPDATE users SET saldo = saldo + $1 WHERE id = $2`, [trans.monto, trans.usuario_id]);
                 const u = await db.query(`SELECT saldo FROM users WHERE id = $1`, [trans.usuario_id]);
                 notificar(trans.usuario_id, "❌ Retiro rechazado. Saldo devuelto.", parseFloat(u.rows[0].saldo));
@@ -246,19 +254,30 @@ app.post('/api/admin/transaction/process', async (req, res) => {
             }
             await db.query(`UPDATE transactions SET estado = 'rechazado' WHERE id = $1`, [transId]);
             res.json({success: true, message: 'Rechazada'});
+
         } else {
-            // Approve
+            // APROBAR (APPROVE)
             if (trans.tipo === 'deposito') {
+                // Sumar dinero
                 await db.query(`UPDATE users SET saldo = saldo + $1 WHERE id = $2`, [trans.monto, trans.usuario_id]);
                 const u = await db.query(`SELECT saldo FROM users WHERE id = $1`, [trans.usuario_id]);
-                notificar(trans.usuario_id, "✅ Recarga aprobada.", parseFloat(u.rows[0].saldo));
+                notificar(trans.usuario_id, `✅ Recarga aprobada.`, parseFloat(u.rows[0].saldo));
             } else {
-                notificar(trans.usuario_id, "✅ Retiro enviado.");
+                // Retiro (El dinero ya se descontó al pedirlo)
+                // CORRECCIÓN: Buscamos el saldo actual para confirmar que se ve bien en pantalla
+                const u = await db.query(`SELECT saldo FROM users WHERE id = $1`, [trans.usuario_id]);
+
+                // Enviamos el saldo actual (que ya tiene el descuento) para que la UI se refresque y no salga null
+                notificar(trans.usuario_id, "✅ Tu retiro ha sido enviado.", parseFloat(u.rows[0].saldo));
             }
+
             await db.query(`UPDATE transactions SET estado = 'completado' WHERE id = $1`, [transId]);
             res.json({success: true, message: 'Aprobada'});
         }
-    } catch(e) { res.status(500).json({error: 'Error procesando'}); }
+    } catch(e) { 
+        console.error(e);
+        res.status(500).json({error: 'Error procesando'}); 
+    }
 });
 
 // RESOLUCIÓN DISPUTAS
