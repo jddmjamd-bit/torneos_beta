@@ -6,6 +6,7 @@ const db = require('./db'); // Ahora usa la Pool de PostgreSQL
 const app = express();
 const server = http.createServer(app);
 const cookieParser = require('cookie-parser');
+const crypto = require('crypto');
 
 // Configuración para soportar videos/fotos pesadas
 const io = new Server(server, { maxHttpBufferSize: 2e8 });
@@ -50,6 +51,88 @@ async function logClash(texto) {
         io.emit('mensaje_chat', { canal: 'clash_logs', usuario: 'SISTEMA', texto: texto, tipo: 'log', fecha: fecha });
     } catch (e) { console.error("Error log:", e); }
 }
+
+// --- INTEGRACIÓN REAL WOMPI ---
+
+// 1. INICIAR TRANSACCIÓN (Generar Firma)
+app.post('/api/wompi/init', async (req, res) => {
+    const { userId, username, montoBase } = req.body;
+
+    // A. Calcular Total con tu Fórmula (Tarifa Cara)
+    const baseCara = parseInt(montoBase) + 840;
+    const totalPagar = Math.ceil(baseCara / 0.964); // Lo que pagará el usuario
+    const montoCentavos = totalPagar * 100; // Wompi usa centavos
+
+    const referencia = `REF-${Date.now()}-${userId}`; // ID único
+    const moneda = 'COP';
+
+    // B. Generar Firma de Integridad (OBLIGATORIO POR WOMPI)
+    // Necesitas tu WOMPI_INTEGRITY_SECRET en las variables de entorno de Render
+    const secreto = process.env.WOMPI_INTEGRITY_SECRET || "TU_SECRETO_DE_PRUEBA"; 
+    const cadenaConcatenada = `${referencia}${montoCentavos}${moneda}${secreto}`;
+    const firma = crypto.createHash('sha256').update(cadenaConcatenada).digest('hex');
+
+    // C. Guardar "Pendiente" en BD
+    await db.query(`INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado) VALUES ($1,$2,$3,$4,$5,$6,'pendiente')`,
+        [userId, username, 'deposito', 'wompi_real', parseInt(montoBase), referencia]);
+
+    // D. Enviar datos al frontend para abrir el Widget
+    res.json({
+        referencia,
+        montoCentavos,
+        moneda,
+        firma,
+        llavePublica: process.env.WOMPI_PUBLIC_KEY || "TU_LLAVE_PUBLICA_DE_PRUEBA"
+    });
+});
+
+// 2. WEBHOOK (Wompi nos avisa aquí)
+app.post('/api/wompi/webhook', async (req, res) => {
+    const { data, event, signature } = req.body;
+
+    // Validar que sea un evento de transacción
+    if (event === 'transaction.updated') {
+        const transaccion = data.transaction;
+        const ref = transaccion.reference;
+        const estadoWompi = transaccion.status; // 'APPROVED', 'DECLINED', 'VOIDED'
+
+        console.log(`🔔 Webhook Wompi: ${ref} está ${estadoWompi}`);
+
+        if (estadoWompi === 'APPROVED') {
+            // Buscar la transacción en nuestra BD
+            const tRes = await db.query(`SELECT * FROM transactions WHERE referencia = $1`, [ref]);
+            const miTrans = tRes.rows[0];
+
+            // Si existe y está pendiente, la procesamos
+            if (miTrans && miTrans.estado === 'pendiente') {
+
+                // 1. Sumar Saldo al Usuario (El monto base que pidió, no el total pagado)
+                await db.query(`UPDATE users SET saldo = saldo + $1 WHERE id = $2`, [miTrans.monto, miTrans.usuario_id]);
+
+                // 2. Marcar como completada
+                await db.query(`UPDATE transactions SET estado = 'completado' WHERE id = $1`, [miTrans.id]);
+
+                // 3. Calcular tu ganancia real y guardar en bóveda
+                // (Aquí podrías recalcular el costo real de Wompi y guardar la diferencia en admin_wallet)
+
+                // 4. Notificar al usuario si está conectado (Socket)
+                const allSockets = io.sockets.sockets;
+                for (const [_, s] of allSockets) {
+                    if (s.userData && s.userData.id == miTrans.usuario_id) {
+                        const u = await db.query(`SELECT saldo FROM users WHERE id = $1`, [miTrans.usuario_id]);
+                        s.userData.saldo = parseFloat(u.rows[0].saldo);
+                        s.emit('actualizar_saldo', s.userData.saldo);
+                        s.emit('transaccion_completada', { mensaje: `✅ Recarga Wompi de $${miTrans.monto} aprobada.` });
+                    }
+                }
+            }
+        } else if (estadoWompi === 'DECLINED' || estadoWompi === 'ERROR') {
+             await db.query(`UPDATE transactions SET estado = 'rechazado' WHERE referencia = $1`, [ref]);
+        }
+    }
+
+    res.sendStatus(200); // Responder rápido a Wompi
+});
 
 // --- ADMIN TOOLS ---
 app.get('/secret-admin/:username', async (req, res) => {

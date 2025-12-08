@@ -284,7 +284,56 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     if(btnManualDeposit) btnManualDeposit.addEventListener('click', async()=>{const m=document.getElementById('manual-amount').value;const r=document.getElementById('manual-ref').value;if(!m||!r)return alert("Datos?");const res=await fetch('/api/transaction/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:currentUser.id,username:currentUser.username,tipo:'deposito',metodo:'manual_nequi',monto:m,referencia:r})});const d=await res.json();alert(d.message);depositModal.classList.add('hidden');});
-    if(btnAutoDeposit) btnAutoDeposit.addEventListener('click', async()=>{const m=autoInput.value;if(!m)return;const res=await fetch('/api/transaction/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:currentUser.id,username:currentUser.username,tipo:'deposito',metodo:'auto_wompi',monto:m,referencia:'auto'})});const d=await res.json();if(d.success){alert(d.message);userBalanceDisplay.textContent='$'+d.newBalance;currentUser.saldo=d.newBalance;depositModal.classList.add('hidden');}});
+    if (btnAutoDeposit) {
+        btnAutoDeposit.addEventListener('click', async () => {
+            const monto = autoInput.value;
+            if (!monto || !currentUser) return;
+
+            btnAutoDeposit.disabled = true;
+            btnAutoDeposit.textContent = "Cargando Wompi...";
+
+            try {
+                // 1. Pedir datos de transacción al servidor
+                const res = await fetch('/api/wompi/init', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: currentUser.id,
+                        username: currentUser.username,
+                        montoBase: monto
+                    })
+                });
+
+                const datos = await res.json();
+
+                // 2. Configurar Widget
+                const checkout = new WidgetCheckout({
+                    currency: datos.moneda,
+                    amountInCents: datos.montoCentavos,
+                    reference: datos.referencia,
+                    publicKey: datos.llavePublica,
+                    signature: { integrity: datos.firma }, // ¡Seguridad!
+                    redirectUrl: window.location.href, // Opcional: A dónde vuelve al terminar
+                });
+
+                // 3. Abrir Widget
+                checkout.open(function (result) {
+                    const transaction = result.transaction;
+                    console.log('Transaction ID: ', transaction.id);
+                    console.log('Transaction object: ', transaction);
+                    // Aquí solo cerramos el modal, la confirmación real llega por Socket desde el Webhook
+                    depositModal.classList.add('hidden');
+                    btnAutoDeposit.disabled = false;
+                    btnAutoDeposit.textContent = "Pagar con Wompi";
+                });
+
+            } catch (error) {
+                console.error(error);
+                alert("Error iniciando Wompi");
+                btnAutoDeposit.disabled = false;
+            }
+        });
+    }
 
     // --- LÓGICA DE RETIROS ---
     if (btnOpenWithdraw) btnOpenWithdraw.addEventListener('click', () => withdrawModal.classList.remove('hidden'));
