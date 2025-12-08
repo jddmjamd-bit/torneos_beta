@@ -1,10 +1,55 @@
-/* ... (Mantén todo el CSS anterior, es muy largo para repetir todo, solo agrega esto al final o busca la sección del botón) ... */
-
-/* ESTILOS BASE */
+/* Reset básico */
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { background-color: #2f3136; color: #fff; font-family: sans-serif; height: 100dvh; overflow: hidden; }
-.center-screen { display: flex; justify-content: center; align-items: center; height: 100dvh; width: 100%; }
+
+body {
+    background-color: #2f3136;
+    color: #fff;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+
+    /* CORRECCIÓN SCROLL WOMPI: */
+    /* Quitamos overflow: hidden del body para que Wompi pueda hacer scroll */
+    height: 100dvh; 
+    width: 100%;
+    position: relative; /* Cambiado de fixed a relative */
+    overflow: auto; /* Permitir scroll si es necesario (Wompi lo necesita) */
+}
+
+/* Pantalla de Login */
+.center-screen {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100dvh;
+    width: 100%;
+    position: fixed; /* Fijamos esto para que no se mueva */
+    top: 0; left: 0;
+    overflow-y: auto; /* Scroll si el celular es muy pequeño */
+}
 .hidden { display: none !important; }
+
+/* Layout Principal (El Chat) */
+.discord-layout { 
+    display: flex; 
+    height: 100dvh; 
+    width: 100%; 
+    position: fixed; /* Fijamos EL CHAT, no el body */
+    top: 0; left: 0;
+    overflow: hidden; /* El chat sí debe estar bloqueado */
+}
+
+/* CORRECCIÓN MODALES (Para que puedas deslizar si el teclado tapa) */
+.modal-content {
+    background: #36393f; 
+    width: 90%; 
+    max-width: 400px;
+    padding: 20px; 
+    border-radius: 10px; 
+    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+
+    /* Permitir scroll dentro del modal si es muy alto */
+    max-height: 90dvh; 
+    overflow-y: auto;
+}
 
 /* Formularios */
 .form-wrapper { background: #36393f; padding: 2rem; border-radius: 8px; width: 90%; max-width: 400px; text-align: center; }
