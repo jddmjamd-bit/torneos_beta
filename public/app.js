@@ -541,7 +541,14 @@ document.addEventListener('DOMContentLoaded', () => {
         lastDatePainted[canal] = null;
         if(chatStorage[canal]) chatStorage[canal].forEach(msg => agregarBurbuja(msg, lista, canal));
     }
-
+    // --- FUNCIÓN PARA DETECTAR LINKS ---
+    function convertirLinks(texto) {
+        // Busca cualquier cosa que empiece por http:// o https://
+        const urlRegex = /(https?:\/\/[^\s]+)/g;
+        return texto.replace(urlRegex, function(url) {
+            return `<a href="${url}" target="_blank" class="chat-link">${url}</a>`;
+        });
+    }
     function agregarBurbuja(data, contenedor, canal) {
         if(canal==='clash_logs'){const d=document.createElement('div');d.classList.add('log-msg');const f=new Date(data.fecha);d.innerHTML=`<span>${data.texto}</span><span class="log-time">${f.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>`;contenedor.appendChild(d);contenedor.scrollTop=contenedor.scrollHeight;return;}
         const fechaMsg=data.fecha?new Date(data.fecha):new Date();const diaMsg=fechaMsg.toDateString();
@@ -552,6 +559,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const hora=data.fecha?new Date(data.fecha).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';
         div.innerHTML=`<span class="msg-user" style="${styleName}">${userHtml}</span>${content}<span class="msg-time">${hora}</span>`;
         contenedor.appendChild(div);contenedor.scrollTop=contenedor.scrollHeight;
+        else content = `<span class="msg-text">${data.texto}</span>`;
     }
 
     function setupChatForm(formId, inputId, canal) { const f=chatElements[canal].form; const i=chatElements[canal].input; if(f&&i){f.addEventListener('submit',(e)=>{e.preventDefault();if(i.value&&currentUser){socket.emit('mensaje_chat',{canal,usuario:currentUser.username,texto:i.value,tipo:'texto'});i.value='';}});}}
