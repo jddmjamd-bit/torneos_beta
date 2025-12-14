@@ -969,11 +969,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // Intentar activar al entrar y al volver a la pestaña
     activarPantalla();
 
-    document.addEventListener('visibilitychange', async () => {
-        if (wakeLock !== null && document.visibilityState === 'visible') {
-            await activarPantalla();
-            socket.emit('registrar_socket', currentUser);
-            location.reload();
+    document.addEventListener('visibilitychange', () => {
+        // Si el usuario vuelve a mirar la app
+        if (document.visibilityState === 'visible') {
+            console.log("👁️ Regresaste: Verificando estado real en base de datos...");
+
+            // 1. Forzamos una petición HTTP para ver en qué estado REAL estamos en la BD
+            // (Esto arregla si el servidor te sacó por inactividad mientras no mirabas)
+            verificarSesion(); 
+
+            // 2. Si el socket murió, lo revivimos manualmente
+            if (socket && socket.disconnected) {
+                console.log("🔌 Reviviendo socket muerto...");
+                socket.connect();
+            }
         }
     });
 });
