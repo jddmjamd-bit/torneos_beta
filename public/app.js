@@ -959,16 +959,5 @@ document.addEventListener('DOMContentLoaded', () => {
             await activarPantalla();
         }
     });
-    // --- RECARGA AUTOMÁTICA AL VOLVER (SINCRONIZACIÓN FORZADA) ---
-    // Esto soluciona el problema de que el estado visual no coincida con el real
-    // al regresar de otra aplicación o pestaña.
-
-    document.addEventListener('visibilitychange', () => {
-        // Si el usuario vuelve a ver la página (estado 'visible')
-        if (document.visibilityState === 'visible') {
-            console.log("🔄 Regresaste. Recargando para sincronizar estado...");
-            // Forzamos la recarga inmediata
-            location.reload();
-        }
-    });
+    
 });
