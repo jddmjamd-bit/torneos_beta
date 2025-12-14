@@ -536,3 +536,15 @@ a { color: #00b0f4; text-decoration: none; }
     width: fit-content;
 }
 .rival-stats-box span { color: #bbb; font-weight: bold; }
+
+/* ESTILO PARA LINKS EN EL CHAT */
+.chat-link {
+    color: #00b0f4; /* Azul brillante */
+    text-decoration: underline;
+    word-break: break-all; /* Si el link es larguísimo, que baje de línea */
+    cursor: pointer;
+}
+
+.chat-link:hover {
+    color: #43b581; /* Se pone verde al pasar el mouse */
+}

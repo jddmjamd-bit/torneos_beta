@@ -558,12 +558,12 @@ document.addEventListener('DOMContentLoaded', () => {
             // AQUÍ ESTÁ EL CAMBIO: Usamos la función convertirLinks
             content = `<span class="msg-text">${convertirLinks(data.texto)}</span>`;
         }
-        
+
         let userHtml=data.usuario;let styleName="";if(canal==='anuncios'){userHtml="📢 "+data.usuario;styleName="color:#e94560;font-weight:bold;";}
         const hora=data.fecha?new Date(data.fecha).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';
         div.innerHTML=`<span class="msg-user" style="${styleName}">${userHtml}</span>${content}<span class="msg-time">${hora}</span>`;
         contenedor.appendChild(div);contenedor.scrollTop=contenedor.scrollHeight;
-        
+
     }
 
     function setupChatForm(formId, inputId, canal) { const f=chatElements[canal].form; const i=chatElements[canal].input; if(f&&i){f.addEventListener('submit',(e)=>{e.preventDefault();if(i.value&&currentUser){socket.emit('mensaje_chat',{canal,usuario:currentUser.username,texto:i.value,tipo:'texto'});i.value='';}});}}
@@ -960,3 +960,4 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 });
+
