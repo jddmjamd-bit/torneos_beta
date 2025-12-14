@@ -15,11 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     verificarSesion(); // Ejecutar inmediatamente
-    
 
-    } catch (e) {
-        console.error("⚠️ Error crítico socket:", e);
-    }
 
     let currentUser = null;
     let currentRoomId = null;
@@ -955,12 +951,64 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Intentar activar al entrar y al volver a la pestaña
-    activarPantalla();
-
+    // --- AUTO-RECARGA SILENCIOSA (SINCRONIZACIÓN) ---
+    // Esto arregla el problema de que al volver no se ve el estado real
     document.addEventListener('visibilitychange', async () => {
-        if (wakeLock !== null && document.visibilityState === 'visible') {
-            await activarPantalla();
+        if (document.visibilityState === 'visible') {
+            console.log("👀 Volviste a la pestaña. Sincronizando estado con el servidor...");
+
+            try {
+                // 1. Pedir los datos reales a la Base de Datos
+                const res = await fetch('/api/session');
+
+                if (res.ok) {
+                    const data = await res.json();
+
+                    // 2. Actualizar la memoria del navegador
+                    currentUser = data.user;
+
+                    // 3. Actualizar Saldo Visualmente
+                    if(userBalanceDisplay) userBalanceDisplay.textContent = '$' + currentUser.saldo;
+
+                    // 4. FORZAR LA VISTA CORRECTA (CÁRCEL)
+                    // Si la BD dice que estás jugando, te mandamos a la pantalla de juego AHORA MISMO.
+
+                    if (currentUser.estado === 'jugando_partida' || currentUser.paso_juego === 1) {
+                        actualizarEstadoVisual('jugando_partida');
+                        // Verificamos si no estamos ahí ya, para movernos
+                        const vistaActual = document.querySelector('.view-section:not(.hidden)');
+                        if (!vistaActual || vistaActual.id !== 'view-game-result') {
+                            ejecutarCambioVista('game_result', null);
+                            console.log("🔒 Usuario redirigido a Paso 1 (Sincronización)");
+                        }
+                    } 
+                    else if (currentUser.estado === 'subiendo_evidencia' || currentUser.paso_juego === 2) {
+                        actualizarEstadoVisual('subiendo_evidencia');
+                        const vistaActual = document.querySelector('.view-section:not(.hidden)');
+                        if (!vistaActual || vistaActual.id !== 'view-clash_pics') {
+                            ejecutarCambioVista('clash_pics', null);
+                            console.log("🔒 Usuario redirigido a Paso 2 (Sincronización)");
+                        }
+                    }
+                    else if (currentUser.estado === 'partida_encontrada') {
+                         actualizarEstadoVisual('partida_encontrada');
+                         const vistaActual = document.querySelector('.view-section:not(.hidden)');
+                         if (!vistaActual || vistaActual.id !== 'view-private') {
+                             ejecutarCambioVista('private', null);
+                         }
+                    }
+                    else {
+                        // Si ya te liberaste, actualizamos a Normal
+                        actualizarEstadoVisual(currentUser.estado || 'normal');
+                    }
+                }
+            } catch (e) {
+                console.error("Error sincronizando:", e);
+            }
+
+            // Reactivar Wake Lock para que no se apague
+            if (typeof activarPantalla === 'function') activarPantalla();
         }
     });
+    
 });
