@@ -15,7 +15,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     verificarSesion(); // Ejecutar inmediatamente
-    try { socket = io(); } catch (e) { console.error(e); }
+
+    try { 
+        socket = io(); 
+
+        // --- CORRECCIÓN: RECONEXIÓN AUTOMÁTICA ---
+        // Esto arregla el problema de "salirse y volver"
+        socket.on('connect', () => {
+            console.log("🟢 Socket conectado/reconectado");
+            // Si ya sabemos quién es el usuario (porque la sesión de cookie lo cargó),
+            // nos registramos de inmediato para que el servidor nos devuelva a la partida.
+            if (currentUser) {
+                socket.emit('registrar_socket', currentUser);
+            }
+        });
+
+    } catch (e) { console.error(e); }
 
     let currentUser = null;
     let currentRoomId = null;
