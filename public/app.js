@@ -15,21 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     verificarSesion(); // Ejecutar inmediatamente
-    // --- 1. CONEXIÓN SOCKET Y RECONEXIÓN AUTOMÁTICA ---
-    let socket;
-    try {
-        socket = io();
-        console.log("✅ Socket inicializado.");
-
-        // NUEVO: Si el socket se reconecta solo (por caída de internet),
-        // volvemos a decirle al servidor quiénes somos para no perder los eventos.
-        socket.on('connect', () => {
-            console.log("🔄 Socket conectado/reconectado con ID:", socket.id);
-            if (currentUser) {
-                console.log("Re-registrando usuario tras conexión...");
-                socket.emit('registrar_socket', currentUser);
-            }
-        });
+    
 
     } catch (e) {
         console.error("⚠️ Error crítico socket:", e);
