@@ -14,35 +14,33 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log("No hay sesión activa.");
         }
     }
-    verificarSesion(); // Ejecutar inmediatamente
+    verificarSesion(); 
+    try { socket = io(); } catch (e) { console.error(e); } // Socket normal sin lógica extra
 
-    // ... debajo de verificarSesion();
+    // --- FIX MAESTRO: AUTO-RECARGA POR SUSPENSIÓN ---
 
-    let isFirstConnection = true; // Bandera de control
+    // 1. Detectar si Chrome restauró la página desde la memoria (La "Foto")
+    window.addEventListener('pageshow', (event) => {
+        // 'persisted' es true si la página no se cargó de la red, sino del caché
+        if (event.persisted) {
+            console.log("♻️ Página restaurada de caché. Forzando recarga...");
+            window.location.reload();
+        }
+    });
 
-    try { 
-        socket = io(); 
+    // 2. Detectar si el celular "durmió" la aplicación (Suspensión)
+    let lastTime = Date.now();
 
-        socket.on('connect', () => {
-            console.log("🟢 Socket conectado");
-
-            // CASO 1: Es la primera vez que abres la página.
-            // No recargamos, solo dejamos que fluya.
-            if (isFirstConnection) {
-                isFirstConnection = false;
-                if (currentUser) socket.emit('registrar_socket', currentUser);
-            } 
-            // CASO 2: Es una reconexión (Te saliste y volviste, o parpadeó el internet).
-            // Aquí aplicamos tu regla: Esperar 2 seg y Recargar SÍ o SÍ.
-            else {
-                console.log("🔄 Regresaste. Esperando 2s para recargar...");
-                setTimeout(() => {
-                    window.location.reload(); // Recarga nuclear
-                }, 2000);
-            }
-        });
-
-    } catch (e) { console.error(e); }
+    setInterval(() => {
+        const currentTime = Date.now();
+        // Si han pasado más de 4 segundos entre un tic y otro (y el intervalo es de 2s),
+        // significa que el sistema operativo congeló la app en medio.
+        if (currentTime > (lastTime + 4000)) { 
+            console.log("⏰ ¡El celular se durmió! Recargando para sincronizar...");
+            window.location.reload();
+        }
+        lastTime = currentTime;
+    }, 2000); 
 
     let currentUser = null;
     let currentRoomId = null;
