@@ -16,17 +16,29 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     verificarSesion(); // Ejecutar inmediatamente
 
+    // ... debajo de verificarSesion();
+
+    let isFirstConnection = true; // Bandera de control
+
     try { 
         socket = io(); 
 
-        // --- CORRECCIÓN: RECONEXIÓN AUTOMÁTICA ---
-        // Esto arregla el problema de "salirse y volver"
         socket.on('connect', () => {
-            console.log("🟢 Socket conectado/reconectado");
-            // Si ya sabemos quién es el usuario (porque la sesión de cookie lo cargó),
-            // nos registramos de inmediato para que el servidor nos devuelva a la partida.
-            if (currentUser) {
-                socket.emit('registrar_socket', currentUser);
+            console.log("🟢 Socket conectado");
+
+            // CASO 1: Es la primera vez que abres la página.
+            // No recargamos, solo dejamos que fluya.
+            if (isFirstConnection) {
+                isFirstConnection = false;
+                if (currentUser) socket.emit('registrar_socket', currentUser);
+            } 
+            // CASO 2: Es una reconexión (Te saliste y volviste, o parpadeó el internet).
+            // Aquí aplicamos tu regla: Esperar 2 seg y Recargar SÍ o SÍ.
+            else {
+                console.log("🔄 Regresaste. Esperando 2s para recargar...");
+                setTimeout(() => {
+                    window.location.reload(); // Recarga nuclear
+                }, 2000);
             }
         });
 
