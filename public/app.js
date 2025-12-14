@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     verificarSesion(); // Ejecutar inmediatamente
-
+    try { socket = io(); } catch (e) { console.error(e); }
 
     let currentUser = null;
     let currentRoomId = null;
@@ -959,5 +959,4 @@ document.addEventListener('DOMContentLoaded', () => {
             await activarPantalla();
         }
     });
-    
 });

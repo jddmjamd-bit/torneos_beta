@@ -704,13 +704,13 @@ io.on('connection', (socket) => {
             }
 
             // --- CASO B: NEGOCIACIÓN (Chat Privado) ---
-            // Aquí SÍ aplicamos la regla de los 60 segundos y penalización.
-            console.log(`🔌 ${userData.username} se fue en negociación. Timer 60s activado.`);
+            // Aquí SÍ aplicamos la regla de los 15 segundos y penalización.
+            console.log(`🔌 ${userData.username} se fue en negociación. Timer 15s activado.`);
 
             if (!match.disconnectTimers) match.disconnectTimers = {};
 
             // Avisar al rival
-            socket.to(salaId).emit('rival_desconectado', { tiempo: 60 });
+            socket.to(salaId).emit('rival_desconectado', { tiempo: 15 });
 
             // ACTIVAR BOMBA DE TIEMPO
             match.disconnectTimers[userData.id] = setTimeout(async () => {
@@ -724,7 +724,7 @@ io.on('connection', (socket) => {
 
                     // 2. LOG
                     const pName = userData.username;
-                    logClash(`⚠️ ABANDONO Negociación: ${pName} no volvió (60s)`);
+                    logClash(`⚠️ ABANDONO Negociación: ${pName} no volvió (15s)`);
 
                     // 3. AVISAR Y CANCELAR
                     io.to(salaId).emit('match_cancelado', { motivo: `${pName} abandonó por desconexión` });
@@ -741,7 +741,7 @@ io.on('connection', (socket) => {
 
                     delete activeMatches[salaId];
                 }
-            }, 60000); // 60 Segundos
+            }, 15000); // 15 Segundos
         }
     });
 });
