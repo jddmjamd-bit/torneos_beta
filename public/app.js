@@ -156,8 +156,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function enterLobby(user) {
         currentUser = user;
-        // --- NUEVO: AVISAR AL SOCKET QUIÉN SOY ---
+        // --- REGISTRAR SOCKET: Siempre emitir (Socket.IO encola si no está conectado) ---
         if (socket) socket.emit('registrar_socket', user);
+        
         // Recuperamos el ID de la sala si venimos de un recarga
         if (user.sala_actual) {
             currentRoomId = user.sala_actual;
@@ -169,23 +170,51 @@ document.addEventListener('DOMContentLoaded', () => {
         if(chatElements.anuncios.form) chatElements.anuncios.form.classList.remove('hidden'); if(btnAdminPanel) btnAdminPanel.classList.remove('hidden'); } else userNameDisplay.textContent = user.username;
         userBalanceDisplay.textContent = '$'+user.saldo;
 
-        if (user.estado === 'subiendo_evidencia' || user.paso_juego === 2) { currentUser.estado = 'subiendo_evidencia'; currentUser.paso_juego = 2; actualizarEstadoVisual('subiendo_evidencia'); ejecutarCambioVista('clash_pics', null); }
-        else if (user.estado === 'jugando_partida' || user.paso_juego === 1) { currentUser.estado = 'jugando_partida'; currentUser.paso_juego = 1; actualizarEstadoVisual('jugando_partida'); ejecutarCambioVista('game_result', null); }
-             else if (user.estado === 'partida_encontrada') {
-                 // NUEVO: Si entro y estoy en negociación, voy a la sala privada
-                 currentUser.estado = 'partida_encontrada';
-                 actualizarEstadoVisual('partida_encontrada');
-                 ejecutarCambioVista('private', null);
-                 // Nota: Los datos del rival llegarán por el socket 'restaurar_partida'
-            } else { 
-                 actualizarEstadoVisual('normal'); 
-            }
+        // --- RESTAURAR ESTADO Y VISTA SEGÚN LA BD (Prioridad absoluta) ---
+        console.log("🔄 enterLobby - Estado desde BD:", user.estado, "paso_juego:", user.paso_juego);
+        
+        if (user.estado === 'subiendo_evidencia' || user.paso_juego === 2) { 
+            currentUser.estado = 'subiendo_evidencia'; 
+            currentUser.paso_juego = 2; 
+            actualizarEstadoVisual('subiendo_evidencia'); 
+            ejecutarCambioVista('clash_pics', null); 
+            console.log("➡️ Navegando a clash_pics (subiendo_evidencia)");
+        }
+        else if (user.estado === 'jugando_partida' || user.paso_juego === 1) { 
+            currentUser.estado = 'jugando_partida'; 
+            currentUser.paso_juego = 1; 
+            actualizarEstadoVisual('jugando_partida'); 
+            ejecutarCambioVista('game_result', null); 
+            console.log("➡️ Navegando a game_result (jugando_partida)");
+        }
+        else if (user.estado === 'partida_encontrada') {
+            currentUser.estado = 'partida_encontrada';
+            actualizarEstadoVisual('partida_encontrada');
+            ejecutarCambioVista('private', null);
+            console.log("➡️ Navegando a private (partida_encontrada)");
+        } 
+        else { 
+            actualizarEstadoVisual('normal'); 
+        }
 
         ['anuncios', 'general', 'clash', 'clash_pics', 'clash_logs'].forEach(renderizarChat);
     }
 
-    function actualizarEstadoVisual(estado) {
+    // Flag para proteger estados activos de ser reseteados accidentalmente
+    let estadoProtegido = false;
+    
+    function actualizarEstadoVisual(estado, forzar = false) {
+        // Protección: No permitir reset a 'normal' si estamos en un estado protegido
+        // a menos que sea forzado (por eventos legítimos del servidor)
+        if (estado === 'normal' && estadoProtegido && !forzar) {
+            console.log("⚠️ Bloqueado reset a 'normal' - estado protegido activo");
+            return;
+        }
+        
         if (currentUser) currentUser.estado = estado;
+        
+        // Activar/desactivar protección según el estado
+        estadoProtegido = (estado === 'partida_encontrada' || estado === 'jugando_partida' || estado === 'subiendo_evidencia');
 
         const badge = document.getElementById('user-status-badge');
         const text = document.getElementById('status-text');
@@ -668,8 +697,8 @@ document.addEventListener('DOMContentLoaded', () => {
             btnConfirmResult.style.background = "#ed4245"; // Rojo alerta
         });
         socket.on('necesita_evidencia', () => { currentUser.estado = 'subiendo_evidencia'; currentUser.paso_juego = 2; actualizarEstadoVisual('subiendo_evidencia'); ejecutarCambioVista('clash_pics', null); alert("PASO 2: Sube la foto."); btnWin.classList.remove('selected'); btnLose.classList.remove('selected'); btnConfirmResult.textContent = "CONFIRMAR Y SUBIR FOTO"; });
-        socket.on('flujo_completado', () => { currentUser.estado = 'normal'; currentUser.paso_juego = 0; actualizarEstadoVisual('normal'); alert("✅ Listo."); ejecutarCambioVista('clash_chat', null); });
-        socket.on('match_cancelado', (data) => { alert("⚠️ " + data.motivo); const pm=document.getElementById('private-messages'); if(pm)pm.innerHTML=''; actualizarEstadoVisual('normal'); ejecutarCambioVista('clash_chat', null); });
+        socket.on('flujo_completado', () => { currentUser.estado = 'normal'; currentUser.paso_juego = 0; actualizarEstadoVisual('normal', true); alert("✅ Listo."); ejecutarCambioVista('clash_chat', null); });
+        socket.on('match_cancelado', (data) => { alert("⚠️ " + data.motivo); const pm=document.getElementById('private-messages'); if(pm)pm.innerHTML=''; actualizarEstadoVisual('normal', true); ejecutarCambioVista('clash_chat', null); });
         socket.on('actualizar_negociacion', (data) => { inputGameMode.value = data.modo; inputBetAmount.value = data.dinero; validarNegociacion(); });
         socket.on('mensaje_privado', (data) => agregarBurbuja(data, document.getElementById('private-messages')));
         // --- NOTIFICACIÓN DE PAGOS (NEQUI) ---
@@ -879,16 +908,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 // (La validación normal se encargará de habilitarlo si hay datos)
             }
 
-            // 5. Ir a la vista correcta
+            // 5. Ir a la vista correcta según el estado
+            console.log("🔄 restaurar_partida - Estado:", data.estado);
             actualizarEstadoVisual(data.estado);
 
-            // Si estamos en negociación, forzamos la vista privada
+            // Navegar a la vista correcta según el estado
             if (data.estado === 'partida_encontrada') {
                 ejecutarCambioVista('private', null);
+                console.log("➡️ Restaurando vista: private");
+            } else if (data.estado === 'jugando_partida') {
+                ejecutarCambioVista('game_result', null);
+                console.log("➡️ Restaurando vista: game_result");
+            } else if (data.estado === 'subiendo_evidencia') {
+                ejecutarCambioVista('clash_pics', null);
+                console.log("➡️ Restaurando vista: clash_pics");
             }
 
-            // Aviso suave (Toast o alert)
-            // alert("🔄 Conexión recuperada. ¡Sigues en la partida!"); // Opcional, a veces molesta al recargar
             console.log("Conexión recuperada y chat reactivado.");
         });
     }
