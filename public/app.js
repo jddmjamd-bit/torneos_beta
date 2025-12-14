@@ -973,6 +973,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (wakeLock !== null && document.visibilityState === 'visible') {
             await activarPantalla();
             socket.emit('registrar_socket', currentUser);
+            location.reload();
         }
     });
 });
