@@ -992,7 +992,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     // --- ESCUDO CONTRA RECARGAS ACCIDENTALES ---
     window.addEventListener('beforeunload', (e) => {
-        sessionStorage.clear();
         // Solo activamos el escudo si el usuario está en algo importante
         if (currentUser && currentUser.estado !== 'normal') {
             // Mensaje estándar (Los navegadores modernos ignoran el texto personalizado y ponen el suyo propio)
