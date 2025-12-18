@@ -1,20 +1,36 @@
 let socket;
-document.addEventListener('DOMContentLoaded', () => {
-    console.log("✅ SISTEMA V5 - SINCRONIZADO");
-    // --- AUTO-LOGIN CON COOKIES ---
-    async function verificarSesion() {
-        try {
-            const res = await fetch('/api/session');
-            if (res.ok) {
-                const data = await res.json();
-                console.log("🍪 Sesión restaurada:", data.user.username);
-                enterLobby(data.user); // ¡Entra directo sin pedir clave!
+let sessionUserId = null; // ID del usuario de la sesión actual para detectar cambios
+
+// --- FUNCIÓN GLOBAL DE VERIFICACIÓN DE SESIÓN (Accesible desde visibilitychange) ---
+async function verificarSesion(enterIfValid = true) {
+    try {
+        const res = await fetch('/api/session', {
+            headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+        });
+        if (res.ok) {
+            const data = await res.json();
+            console.log("🍪 Sesión verificada:", data.user.username);
+            // Detectar si cambió el usuario (otra cuenta)
+            if (sessionUserId && sessionUserId !== data.user.id) {
+                console.warn("⚠️ Usuario diferente detectado. Recargando...");
+                window.location.reload(true);
+                return null;
             }
-        } catch (e) {
-            console.log("No hay sesión activa.");
+            sessionUserId = data.user.id;
+            return data.user;
         }
+    } catch (e) {
+        console.log("No hay sesión activa.");
     }
-    verificarSesion(); 
+    return null;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    console.log("✅ SISTEMA V6 - ANTI-CACHÉ");
+    // --- AUTO-LOGIN CON COOKIES ---
+    verificarSesion(true).then(user => {
+        if (user) enterLobby(user);
+    });
     try { socket = io(); } catch (e) { console.error(e); } // Socket normal sin lógica extra
 
     // --- FIX MAESTRO: AUTO-RECARGA POR SUSPENSIÓN ---
@@ -35,12 +51,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const currentTime = Date.now();
         // Si han pasado más de 4 segundos entre un tic y otro (y el intervalo es de 2s),
         // significa que el sistema operativo congeló la app en medio.
-        if (currentTime > (lastTime + 4000)) { 
+        if (currentTime > (lastTime + 4000)) {
             console.log("⏰ ¡El celular se durmió! Recargando para sincronizar...");
             window.location.reload();
         }
         lastTime = currentTime;
-    }, 2000); 
+    }, 2000);
 
     let currentUser = null;
     let currentRoomId = null;
@@ -87,7 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnConfirmResult = document.getElementById('btn-confirm-result');
     const resultText = document.getElementById('result-selection-text');
     const privateChatForm = document.getElementById('private-chat-form');
-    const btnAdminStats = document.getElementById('btn-admin-stats'); 
+    const btnAdminStats = document.getElementById('btn-admin-stats');
     const adminStatsOverlay = document.getElementById('admin-stats-overlay');
     // RETIROS UI
     const btnOpenWithdraw = document.getElementById('btn-open-withdraw');
@@ -123,78 +139,81 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // --- FUNCIONES GLOBALES ---
-    window.toggleDropdown = function(id) { const m=document.getElementById(id); if(m) m.classList.toggle('hidden'); };
+    window.toggleDropdown = function (id) { const m = document.getElementById(id); if (m) m.classList.toggle('hidden'); };
 
-    window.switchDepositTab = function(tab) {
+    window.switchDepositTab = function (tab) {
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.querySelectorAll('.deposit-section').forEach(s => s.classList.add('hidden'));
         if (tab === 'manual') {
-            const btns = document.querySelectorAll('.tab-btn'); if(btns[0]) btns[0].classList.add('active');
+            const btns = document.querySelectorAll('.tab-btn'); if (btns[0]) btns[0].classList.add('active');
             document.getElementById('tab-manual').classList.remove('hidden');
         } else {
-            const btns = document.querySelectorAll('.tab-btn'); if(btns[1]) btns[1].classList.add('active');
+            const btns = document.querySelectorAll('.tab-btn'); if (btns[1]) btns[1].classList.add('active');
             document.getElementById('tab-auto').classList.remove('hidden');
         }
     };
 
-    window.cambiarCanal = function(vista, btn) {
+    window.cambiarCanal = function (vista, btn) {
         if (currentUser) {
             if (currentUser.estado === 'jugando_partida' && vista !== 'game_result') { alert("⛔ TERMINA EL PASO 1"); ejecutarCambioVista('game_result', null); return; }
             if (currentUser.estado === 'subiendo_evidencia' && vista !== 'clash_pics') { alert("⛔ TERMINA EL PASO 2"); ejecutarCambioVista('clash_pics', null); return; }
-            if (currentUser.estado === 'partida_encontrada' && vista !== 'private') { if(!confirm("⚠️ ¿SALIR? Se cancelará.")) return; socket.emit('cancelar_match', { motivo: 'Salió del chat' }); return; }
+            if (currentUser.estado === 'partida_encontrada' && vista !== 'private') { if (!confirm("⚠️ ¿SALIR? Se cancelará.")) return; socket.emit('cancelar_match', { motivo: 'Salió del chat' }); return; }
         }
         ejecutarCambioVista(vista, btn);
     };
 
     function ejecutarCambioVista(vistaName, btn) {
-        Object.values(views).forEach(v => { if(v) v.classList.add('hidden'); });
+        Object.values(views).forEach(v => { if (v) v.classList.add('hidden'); });
 
         // Mapeo directo
         let target = views[vistaName];
         if (target) target.classList.remove('hidden');
 
-        if (btn) { document.querySelectorAll('.channel').forEach(c=>c.classList.remove('active')); btn.classList.add('active'); }
-        if(window.innerWidth<=768) { if(sidebar) sidebar.classList.remove('open'); if(mobileOverlay) mobileOverlay.classList.remove('open'); }
+        if (btn) { document.querySelectorAll('.channel').forEach(c => c.classList.remove('active')); btn.classList.add('active'); }
+        if (window.innerWidth <= 768) { if (sidebar) sidebar.classList.remove('open'); if (mobileOverlay) mobileOverlay.classList.remove('open'); }
     }
 
     // --- AUTH ---
-    if(linkToLogin) linkToLogin.addEventListener('click', (e)=>{e.preventDefault(); registroContainer.classList.add('hidden'); loginContainer.classList.remove('hidden');});
-    if(linkToRegister) linkToRegister.addEventListener('click', (e)=>{e.preventDefault(); loginContainer.classList.add('hidden'); registroContainer.classList.remove('hidden');});
+    if (linkToLogin) linkToLogin.addEventListener('click', (e) => { e.preventDefault(); registroContainer.classList.add('hidden'); loginContainer.classList.remove('hidden'); });
+    if (linkToRegister) linkToRegister.addEventListener('click', (e) => { e.preventDefault(); loginContainer.classList.add('hidden'); registroContainer.classList.remove('hidden'); });
 
-    if(loginForm) loginForm.addEventListener('submit', async(e)=>{ e.preventDefault(); try{const res=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(new FormData(loginForm)))}); const r=await res.json(); if(res.ok) { if(!r.user.tipo_suscripcion) r.user.tipo_suscripcion='free'; enterLobby(r.user); } else alert(r.error);}catch(e){} });
-    if(registroForm) registroForm.addEventListener('submit', async(e)=>{ e.preventDefault(); try{const res=await fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(new FormData(registroForm)))}); if(res.ok){alert('Creado');registroContainer.classList.add('hidden');loginContainer.classList.remove('hidden');}else alert('Error');}catch(e){} });
+    if (loginForm) loginForm.addEventListener('submit', async (e) => { e.preventDefault(); try { const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(loginForm))) }); const r = await res.json(); if (res.ok) { if (!r.user.tipo_suscripcion) r.user.tipo_suscripcion = 'free'; enterLobby(r.user); } else alert(r.error); } catch (e) { } });
+    if (registroForm) registroForm.addEventListener('submit', async (e) => { e.preventDefault(); try { const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(registroForm))) }); if (res.ok) { alert('Creado'); registroContainer.classList.add('hidden'); loginContainer.classList.remove('hidden'); } else alert('Error'); } catch (e) { } });
 
     function enterLobby(user) {
         currentUser = user;
+        sessionUserId = user.id; // Set sessionUserId when entering lobby
         // --- REGISTRAR SOCKET: Siempre emitir (Socket.IO encola si no está conectado) ---
         if (socket) socket.emit('registrar_socket', user);
-        
+
         // Recuperamos el ID de la sala si venimos de un recarga
         if (user.sala_actual) {
             currentRoomId = user.sala_actual;
             console.log("Sala recuperada:", currentRoomId);
         }
         authFlow.classList.add('hidden'); discordLobby.classList.remove('hidden');
-        if (user.tipo_suscripcion === 'admin') { userNameDisplay.innerHTML = `👑 ${user.username} <span style="font-size:0.7rem; color:#e94560;">(ADMIN)</span>`; 
-        if(btnAdminStats) btnAdminStats.classList.remove('hidden');
-        if(chatElements.anuncios.form) chatElements.anuncios.form.classList.remove('hidden'); if(btnAdminPanel) btnAdminPanel.classList.remove('hidden'); } else userNameDisplay.textContent = user.username;
-        userBalanceDisplay.textContent = '$'+user.saldo;
+        if (user.tipo_suscripcion === 'admin') {
+            userNameDisplay.innerHTML = `👑 ${user.username} <span style="font-size:0.7rem; color:#e94560;">(ADMIN)</span>`;
+            if (btnAdminStats) btnAdminStats.classList.remove('hidden');
+            if (chatElements.anuncios.form) chatElements.anuncios.form.classList.remove('hidden'); if (btnAdminPanel) btnAdminPanel.classList.remove('hidden');
+        } else userNameDisplay.textContent = user.username;
+        userBalanceDisplay.textContent = '$' + user.saldo;
 
         // --- RESTAURAR ESTADO Y VISTA SEGÚN LA BD (Prioridad absoluta) ---
         console.log("🔄 enterLobby - Estado desde BD:", user.estado, "paso_juego:", user.paso_juego);
-        
-        if (user.estado === 'subiendo_evidencia' || user.paso_juego === 2) { 
-            currentUser.estado = 'subiendo_evidencia'; 
-            currentUser.paso_juego = 2; 
-            actualizarEstadoVisual('subiendo_evidencia'); 
-            ejecutarCambioVista('clash_pics', null); 
+
+        if (user.estado === 'subiendo_evidencia' || user.paso_juego === 2) {
+            currentUser.estado = 'subiendo_evidencia';
+            currentUser.paso_juego = 2;
+            actualizarEstadoVisual('subiendo_evidencia');
+            ejecutarCambioVista('clash_pics', null);
             console.log("➡️ Navegando a clash_pics (subiendo_evidencia)");
         }
-        else if (user.estado === 'jugando_partida' || user.paso_juego === 1) { 
-            currentUser.estado = 'jugando_partida'; 
-            currentUser.paso_juego = 1; 
-            actualizarEstadoVisual('jugando_partida'); 
-            ejecutarCambioVista('game_result', null); 
+        else if (user.estado === 'jugando_partida' || user.paso_juego === 1) {
+            currentUser.estado = 'jugando_partida';
+            currentUser.paso_juego = 1;
+            actualizarEstadoVisual('jugando_partida');
+            ejecutarCambioVista('game_result', null);
             console.log("➡️ Navegando a game_result (jugando_partida)");
         }
         else if (user.estado === 'partida_encontrada') {
@@ -202,9 +221,9 @@ document.addEventListener('DOMContentLoaded', () => {
             actualizarEstadoVisual('partida_encontrada');
             ejecutarCambioVista('private', null);
             console.log("➡️ Navegando a private (partida_encontrada)");
-        } 
-        else { 
-            actualizarEstadoVisual('normal'); 
+        }
+        else {
+            actualizarEstadoVisual('normal');
         }
 
         ['anuncios', 'general', 'clash', 'clash_pics', 'clash_logs'].forEach(renderizarChat);
@@ -212,7 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Flag para proteger estados activos de ser reseteados accidentalmente
     let estadoProtegido = false;
-    
+
     function actualizarEstadoVisual(estado, forzar = false) {
         // Protección: No permitir reset a 'normal' si estamos en un estado protegido
         // a menos que sea forzado (por eventos legítimos del servidor)
@@ -220,9 +239,9 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log("⚠️ Bloqueado reset a 'normal' - estado protegido activo");
             return;
         }
-        
+
         if (currentUser) currentUser.estado = estado;
-        
+
         // Activar/desactivar protección según el estado
         estadoProtegido = (estado === 'partida_encontrada' || estado === 'jugando_partida' || estado === 'subiendo_evidencia');
 
@@ -232,7 +251,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // CONTROL DEL FORMULARIO DE FOTOS (CLASH PICS)
         const picsForm = document.getElementById('clash-pics-form');
         // Mensaje opcional para espectadores
-        const picsContainer = document.getElementById('view-clash_pics'); 
+        const picsContainer = document.getElementById('view-clash_pics');
 
         if (picsForm) {
             // ¿Tiene permiso? (Es Admin O está en el Paso 2)
@@ -246,68 +265,68 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // CONTROL DE ETIQUETAS Y BOTÓN JUGAR (Igual que antes)
-        if(badge && text) {
+        if (badge && text) {
             badge.className = 'status-indicator';
-            switch(estado) {
-                case 'normal': 
-                    badge.classList.add('status-normal'); 
-                    text.textContent="🟢 Libre"; 
-                    if(btnBuscar){
-                        btnBuscar.textContent="⚔️ JUGAR";
-                        btnBuscar.disabled=false;
+            switch (estado) {
+                case 'normal':
+                    badge.classList.add('status-normal');
+                    text.textContent = "🟢 Libre";
+                    if (btnBuscar) {
+                        btnBuscar.textContent = "⚔️ JUGAR";
+                        btnBuscar.disabled = false;
                         btnBuscar.classList.remove('btn-cancelar');
-                        btnBuscar.style.opacity="1";
-                        btnBuscar.style.cursor="pointer";
-                    } 
+                        btnBuscar.style.opacity = "1";
+                        btnBuscar.style.cursor = "pointer";
+                    }
                     break;
-                case 'buscando_partida': 
-                    badge.classList.add('status-buscando'); 
-                    text.textContent="🔍 Buscando..."; 
-                    if(btnBuscar){
-                        btnBuscar.textContent="❌ CANCELAR";
-                        btnBuscar.disabled=false;
+                case 'buscando_partida':
+                    badge.classList.add('status-buscando');
+                    text.textContent = "🔍 Buscando...";
+                    if (btnBuscar) {
+                        btnBuscar.textContent = "❌ CANCELAR";
+                        btnBuscar.disabled = false;
                         btnBuscar.classList.add('btn-cancelar');
-                        btnBuscar.style.opacity="1";
-                        btnBuscar.style.cursor="pointer";
-                    } 
+                        btnBuscar.style.opacity = "1";
+                        btnBuscar.style.cursor = "pointer";
+                    }
                     break;
-                case 'partida_encontrada': 
-                    badge.classList.add('status-jugando'); 
-                    text.textContent="⚠️ Encontrada"; 
-                    if(btnBuscar){
-                        btnBuscar.textContent="🚫 EN JUEGO";
-                        btnBuscar.disabled=true;
+                case 'partida_encontrada':
+                    badge.classList.add('status-jugando');
+                    text.textContent = "⚠️ Encontrada";
+                    if (btnBuscar) {
+                        btnBuscar.textContent = "🚫 EN JUEGO";
+                        btnBuscar.disabled = true;
                         btnBuscar.classList.remove('btn-cancelar');
-                        btnBuscar.style.opacity="0.5";
-                        btnBuscar.style.cursor="not-allowed";
-                    } 
+                        btnBuscar.style.opacity = "0.5";
+                        btnBuscar.style.cursor = "not-allowed";
+                    }
                     break;
-                case 'jugando_partida': 
-                    badge.classList.add('status-jugando'); 
-                    text.textContent="🎮 Jugando (Paso 1)"; 
-                    if(btnBuscar){
-                        btnBuscar.textContent="🚫 JUGANDO";
-                        btnBuscar.disabled=true;
-                        btnBuscar.style.opacity="0.5";
-                    } 
+                case 'jugando_partida':
+                    badge.classList.add('status-jugando');
+                    text.textContent = "🎮 Jugando (Paso 1)";
+                    if (btnBuscar) {
+                        btnBuscar.textContent = "🚫 JUGANDO";
+                        btnBuscar.disabled = true;
+                        btnBuscar.style.opacity = "0.5";
+                    }
                     break;
-                case 'subiendo_evidencia': 
-                    badge.classList.add('status-jugando'); 
-                    text.textContent="📸 Foto (Paso 2)"; 
-                    if(btnBuscar){
-                        btnBuscar.textContent="🚫 SUBIR FOTO";
-                        btnBuscar.disabled=true;
-                        btnBuscar.style.opacity="0.5";
-                    } 
+                case 'subiendo_evidencia':
+                    badge.classList.add('status-jugando');
+                    text.textContent = "📸 Foto (Paso 2)";
+                    if (btnBuscar) {
+                        btnBuscar.textContent = "🚫 SUBIR FOTO";
+                        btnBuscar.disabled = true;
+                        btnBuscar.style.opacity = "0.5";
+                    }
                     break;
-                default: text.textContent=estado;
+                default: text.textContent = estado;
             }
         }
     }
 
     // --- PAGOS ---
-    if(btnOpenDeposit) btnOpenDeposit.addEventListener('click', () => depositModal.classList.remove('hidden'));
-    if(closeDepositModal) closeDepositModal.addEventListener('click', () => depositModal.classList.add('hidden'));
+    if (btnOpenDeposit) btnOpenDeposit.addEventListener('click', () => depositModal.classList.remove('hidden'));
+    if (closeDepositModal) closeDepositModal.addEventListener('click', () => depositModal.classList.add('hidden'));
     if (autoInput) {
         autoInput.addEventListener('input', () => {
             const val = parseInt(autoInput.value);
@@ -337,7 +356,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btnAutoDeposit.textContent = `Pagar $${totalPagar.toLocaleString()} con Wompi (Simulado)`;
         });
     }
-    if(btnManualDeposit) btnManualDeposit.addEventListener('click', async()=>{const m=document.getElementById('manual-amount').value;const r=document.getElementById('manual-ref').value;if(!m||!r)return alert("Datos?");const res=await fetch('/api/transaction/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:currentUser.id,username:currentUser.username,tipo:'deposito',metodo:'manual_nequi',monto:m,referencia:r})});const d=await res.json();alert(d.message);depositModal.classList.add('hidden');});
+    if (btnManualDeposit) btnManualDeposit.addEventListener('click', async () => { const m = document.getElementById('manual-amount').value; const r = document.getElementById('manual-ref').value; if (!m || !r) return alert("Datos?"); const res = await fetch('/api/transaction/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: currentUser.id, username: currentUser.username, tipo: 'deposito', metodo: 'manual_nequi', monto: m, referencia: r }) }); const d = await res.json(); alert(d.message); depositModal.classList.add('hidden'); });
     if (btnAutoDeposit) {
         btnAutoDeposit.addEventListener('click', async () => {
             const monto = autoInput.value;
@@ -407,11 +426,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch('/api/transaction/withdraw', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    userId: currentUser.id, 
-                    username: currentUser.username, 
-                    monto: monto, 
-                    datosCuenta: datosCuenta 
+                body: JSON.stringify({
+                    userId: currentUser.id,
+                    username: currentUser.username,
+                    monto: monto,
+                    datosCuenta: datosCuenta
                 })
             });
 
@@ -428,15 +447,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- ADMIN ---
-    if(btnAdminPanel) btnAdminPanel.addEventListener('click', () => { adminPanelOverlay.classList.remove('hidden'); cargarTransaccionesAdmin(); });
+    if (btnAdminPanel) btnAdminPanel.addEventListener('click', () => { adminPanelOverlay.classList.remove('hidden'); cargarTransaccionesAdmin(); });
     // --- ADMIN PANEL MEJORADO (COLORES) ---
-    window.cargarTransaccionesAdmin = async () => { 
-        const res=await fetch('/api/admin/transactions'); 
-        const list=await res.json(); 
-        const c=document.getElementById('admin-transactions-list'); 
-        c.innerHTML=''; 
+    window.cargarTransaccionesAdmin = async () => {
+        const res = await fetch('/api/admin/transactions');
+        const list = await res.json();
+        const c = document.getElementById('admin-transactions-list');
+        c.innerHTML = '';
 
-        if(list.length===0) c.innerHTML='<p style="text-align:center;color:#bbb">Nada pendiente.</p>'; 
+        if (list.length === 0) c.innerHTML = '<p style="text-align:center;color:#bbb">Nada pendiente.</p>';
 
         list.forEach(t => {
             const div = document.createElement('div');
@@ -459,15 +478,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `;
             c.appendChild(div);
-        }); 
+        });
     };
-    window.procesarTransaccionAdmin = async(id,act)=>{if(!confirm(`¿${act}?`))return;const res=await fetch('/api/admin/transaction/process',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transId:id,action:act})});const d=await res.json();alert(d.message);cargarTransaccionesAdmin();};
+    window.procesarTransaccionAdmin = async (id, act) => { if (!confirm(`¿${act}?`)) return; const res = await fetch('/api/admin/transaction/process', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transId: id, action: act }) }); const d = await res.json(); alert(d.message); cargarTransaccionesAdmin(); };
     // --- LÓGICA DISPUTAS ADMIN (CON CULPABLE) ---
     window.cargarDisputasAdmin = async () => {
         const res = await fetch('/api/admin/disputes');
         const list = await res.json();
         const c = document.getElementById('admin-disputes-list');
-        c.innerHTML = ''; 
+        c.innerHTML = '';
         if (list.length === 0) c.innerHTML = '<p style="color:#bbb">Sin disputas.</p>';
 
         list.forEach(m => {
@@ -513,12 +532,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const ganador = document.getElementById(`ganador-${id}`).value;
         const culpable = document.getElementById(`culpable-${id}`).value;
 
-        if(!confirm(`SENTENCIA:\n\n🏆 Gana: ${ganador}\n💀 Culpable: ${culpable}\n\n¿Confirmar?`)) return;
+        if (!confirm(`SENTENCIA:\n\n🏆 Gana: ${ganador}\n💀 Culpable: ${culpable}\n\n¿Confirmar?`)) return;
 
         await fetch('/api/admin/resolve-dispute', {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({
-                matchId: id, 
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                matchId: id,
                 ganadorNombre: ganador,
                 culpableNombre: culpable // <--- Dato Nuevo
             })
@@ -529,15 +548,15 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // Modifica el botón de abrir panel para cargar ambas listas
-    if(btnAdminPanel) btnAdminPanel.addEventListener('click', () => { 
-        adminPanelOverlay.classList.remove('hidden'); 
-        cargarTransaccionesAdmin(); 
+    if (btnAdminPanel) btnAdminPanel.addEventListener('click', () => {
+        adminPanelOverlay.classList.remove('hidden');
+        cargarTransaccionesAdmin();
         cargarDisputasAdmin(); // <--- NUEVO
     });
     // --- PANEL FINANCIERO ---
-    if(btnAdminStats) btnAdminStats.addEventListener('click', () => { 
-        adminStatsOverlay.classList.remove('hidden'); 
-        cargarEstadisticasAdmin(); 
+    if (btnAdminStats) btnAdminStats.addEventListener('click', () => {
+        adminStatsOverlay.classList.remove('hidden');
+        cargarEstadisticasAdmin();
     });
 
     window.cargarEstadisticasAdmin = async () => {
@@ -590,50 +609,50 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- RENDERIZADO CHAT ---
     function renderizarChat(canal) {
         const lista = chatLists[canal];
-        if(!lista) return;
+        if (!lista) return;
         lista.innerHTML = '';
         lastDatePainted[canal] = null;
-        if(chatStorage[canal]) chatStorage[canal].forEach(msg => agregarBurbuja(msg, lista, canal));
+        if (chatStorage[canal]) chatStorage[canal].forEach(msg => agregarBurbuja(msg, lista, canal));
     }
     // --- FUNCIÓN PARA DETECTAR LINKS ---
     function convertirLinks(texto) {
         // Busca cualquier cosa que empiece por http:// o https://
         const urlRegex = /(https?:\/\/[^\s]+)/g;
-        return texto.replace(urlRegex, function(url) {
+        return texto.replace(urlRegex, function (url) {
             return `<a href="${url}" target="_blank" class="chat-link">${url}</a>`;
         });
     }
     function agregarBurbuja(data, contenedor, canal) {
-        if(canal==='clash_logs'){const d=document.createElement('div');d.classList.add('log-msg');const f=new Date(data.fecha);d.innerHTML=`<span>${data.texto}</span><span class="log-time">${f.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>`;contenedor.appendChild(d);contenedor.scrollTop=contenedor.scrollHeight;return;}
-        const fechaMsg=data.fecha?new Date(data.fecha):new Date();const diaMsg=fechaMsg.toDateString();
-        if(diaMsg!==lastDatePainted[canal]){const sep=document.createElement('div');sep.classList.add('date-separator');sep.textContent=(diaMsg===new Date().toDateString())?"Hoy":fechaMsg.toLocaleDateString();contenedor.appendChild(sep);lastDatePainted[canal]=diaMsg;}
-        const div=document.createElement('div');div.classList.add('msg');div.classList.add((currentUser&&data.usuario===currentUser.username)?'own':'other');
-        let content='';if(data.tipo==='imagen')content=`<img src="${data.texto}" class="chat-image" onclick="window.open(this.src)">`;else if(data.tipo==='video')content=`<video src="${data.texto}" class="chat-video" controls></video>`;else {
+        if (canal === 'clash_logs') { const d = document.createElement('div'); d.classList.add('log-msg'); const f = new Date(data.fecha); d.innerHTML = `<span>${data.texto}</span><span class="log-time">${f.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>`; contenedor.appendChild(d); contenedor.scrollTop = contenedor.scrollHeight; return; }
+        const fechaMsg = data.fecha ? new Date(data.fecha) : new Date(); const diaMsg = fechaMsg.toDateString();
+        if (diaMsg !== lastDatePainted[canal]) { const sep = document.createElement('div'); sep.classList.add('date-separator'); sep.textContent = (diaMsg === new Date().toDateString()) ? "Hoy" : fechaMsg.toLocaleDateString(); contenedor.appendChild(sep); lastDatePainted[canal] = diaMsg; }
+        const div = document.createElement('div'); div.classList.add('msg'); div.classList.add((currentUser && data.usuario === currentUser.username) ? 'own' : 'other');
+        let content = ''; if (data.tipo === 'imagen') content = `<img src="${data.texto}" class="chat-image" onclick="window.open(this.src)">`; else if (data.tipo === 'video') content = `<video src="${data.texto}" class="chat-video" controls></video>`; else {
             // AQUÍ ESTÁ EL CAMBIO: Usamos la función convertirLinks
             content = `<span class="msg-text">${convertirLinks(data.texto)}</span>`;
         }
 
-        let userHtml=data.usuario;let styleName="";if(canal==='anuncios'){userHtml="📢 "+data.usuario;styleName="color:#e94560;font-weight:bold;";}
-        const hora=data.fecha?new Date(data.fecha).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';
-        div.innerHTML=`<span class="msg-user" style="${styleName}">${userHtml}</span>${content}<span class="msg-time">${hora}</span>`;
-        contenedor.appendChild(div);contenedor.scrollTop=contenedor.scrollHeight;
+        let userHtml = data.usuario; let styleName = ""; if (canal === 'anuncios') { userHtml = "📢 " + data.usuario; styleName = "color:#e94560;font-weight:bold;"; }
+        const hora = data.fecha ? new Date(data.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+        div.innerHTML = `<span class="msg-user" style="${styleName}">${userHtml}</span>${content}<span class="msg-time">${hora}</span>`;
+        contenedor.appendChild(div); contenedor.scrollTop = contenedor.scrollHeight;
 
     }
 
-    function setupChatForm(formId, inputId, canal) { const f=chatElements[canal].form; const i=chatElements[canal].input; if(f&&i){f.addEventListener('submit',(e)=>{e.preventDefault();if(i.value&&currentUser){socket.emit('mensaje_chat',{canal,usuario:currentUser.username,texto:i.value,tipo:'texto'});i.value='';}});}}
+    function setupChatForm(formId, inputId, canal) { const f = chatElements[canal].form; const i = chatElements[canal].input; if (f && i) { f.addEventListener('submit', (e) => { e.preventDefault(); if (i.value && currentUser) { socket.emit('mensaje_chat', { canal, usuario: currentUser.username, texto: i.value, tipo: 'texto' }); i.value = ''; } }); } }
     setupChatForm(null, null, 'general'); setupChatForm(null, null, 'clash');
 
-    const anuForm=chatElements.anuncios.form; if(anuForm){anuForm.addEventListener('submit',(e)=>{e.preventDefault();const i=chatElements.anuncios.input;const fi=chatElements.anuncios.fileInput;const f=fi.files[0];if(f&&currentUser){const r=new FileReader();r.onload=(ev)=>{const t=f.type.startsWith('video')?'video':'imagen';socket.emit('mensaje_chat',{canal:'anuncios',usuario:currentUser.username,texto:ev.target.result,tipo:t});i.value='';fi.value='';};r.readAsDataURL(f);}else if(i.value){socket.emit('mensaje_chat',{canal:'anuncios',usuario:currentUser.username,texto:i.value,tipo:'texto'});i.value='';}});}
-    const picsUI=chatElements.clash_pics; if(picsUI.input) picsUI.input.addEventListener('change', function() { if(this.files[0]) { picsUI.nameDisplay.textContent=this.files[0].name; picsUI.nameDisplay.style.color="#4ecca3"; } }); if(picsUI.form) picsUI.form.addEventListener('submit', (e) => { e.preventDefault(); const file = picsUI.input.files[0]; if (file && currentUser) { const reader = new FileReader(); reader.onload = function(evt) { socket.emit('mensaje_chat', { canal: 'clash_pics', usuario: currentUser.username, texto: evt.target.result, tipo: 'imagen' }); picsUI.input.value = ''; picsUI.nameDisplay.textContent = 'Ninguna'; }; reader.readAsDataURL(file); } else alert("Selecciona foto."); });
+    const anuForm = chatElements.anuncios.form; if (anuForm) { anuForm.addEventListener('submit', (e) => { e.preventDefault(); const i = chatElements.anuncios.input; const fi = chatElements.anuncios.fileInput; const f = fi.files[0]; if (f && currentUser) { const r = new FileReader(); r.onload = (ev) => { const t = f.type.startsWith('video') ? 'video' : 'imagen'; socket.emit('mensaje_chat', { canal: 'anuncios', usuario: currentUser.username, texto: ev.target.result, tipo: t }); i.value = ''; fi.value = ''; }; r.readAsDataURL(f); } else if (i.value) { socket.emit('mensaje_chat', { canal: 'anuncios', usuario: currentUser.username, texto: i.value, tipo: 'texto' }); i.value = ''; } }); }
+    const picsUI = chatElements.clash_pics; if (picsUI.input) picsUI.input.addEventListener('change', function () { if (this.files[0]) { picsUI.nameDisplay.textContent = this.files[0].name; picsUI.nameDisplay.style.color = "#4ecca3"; } }); if (picsUI.form) picsUI.form.addEventListener('submit', (e) => { e.preventDefault(); const file = picsUI.input.files[0]; if (file && currentUser) { const reader = new FileReader(); reader.onload = function (evt) { socket.emit('mensaje_chat', { canal: 'clash_pics', usuario: currentUser.username, texto: evt.target.result, tipo: 'imagen' }); picsUI.input.value = ''; picsUI.nameDisplay.textContent = 'Ninguna'; }; reader.readAsDataURL(file); } else alert("Selecciona foto."); });
 
-    if(socket) {
+    if (socket) {
         socket.on('historial_chat', (data) => { if (data.canal && chatStorage[data.canal]) { chatStorage[data.canal] = data.mensajes; if (currentUser) renderizarChat(data.canal); } });
         socket.on('mensaje_chat', (data) => { const canal = data.canal || 'general'; if (chatStorage[canal]) { chatStorage[canal].push(data); if (currentUser) agregarBurbuja(data, chatLists[canal], canal); } });
         socket.on('error_busqueda', (m) => { alert(m); actualizarEstadoVisual('normal'); });
 
         socket.on('partida_encontrada', (data) => {
             alert(`¡RIVAL ENCONTRADO!`);
-            currentRoomId = data.salaId; 
+            currentRoomId = data.salaId;
             maxBetAllowed = data.maxApuesta;
 
             // Limpieza
@@ -642,17 +661,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
             document.getElementById('max-bet-info').textContent = `Tope: $${maxBetAllowed.toLocaleString()}`;
 
-            inputGameMode.value = ''; 
-            inputBetAmount.value = ''; 
-            inputGameMode.disabled = false; 
-            inputBetAmount.disabled = false; 
+            inputGameMode.value = '';
+            inputBetAmount.value = '';
+            inputGameMode.disabled = false;
+            inputBetAmount.disabled = false;
 
-            btnStartGame.textContent = "🎮 COMENZAR PARTIDA"; 
-            btnStartGame.disabled = true; 
-            btnStartGame.classList.remove('enabled'); 
+            btnStartGame.textContent = "🎮 COMENZAR PARTIDA";
+            btnStartGame.disabled = true;
+            btnStartGame.classList.remove('enabled');
             validationMsg.textContent = "";
 
-            actualizarEstadoVisual('partida_encontrada'); 
+            actualizarEstadoVisual('partida_encontrada');
             ejecutarCambioVista('private', null);
 
             // --- LÓGICA DE ESTADÍSTICAS RIVAL ---
@@ -667,7 +686,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // 3. Calcular Huidas Totales
-            const huidas = (rivalData.salidas_chat || 0); 
+            const huidas = (rivalData.salidas_chat || 0);
 
             // 4. Pintar en pantalla
             document.getElementById('rival-name').textContent = `VS ${rivalData.username}`;
@@ -708,7 +727,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         socket.on('necesita_evidencia', () => { currentUser.estado = 'subiendo_evidencia'; currentUser.paso_juego = 2; actualizarEstadoVisual('subiendo_evidencia'); ejecutarCambioVista('clash_pics', null); alert("PASO 2: Sube la foto."); btnWin.classList.remove('selected'); btnLose.classList.remove('selected'); btnConfirmResult.textContent = "CONFIRMAR Y SUBIR FOTO"; });
         socket.on('flujo_completado', () => { currentUser.estado = 'normal'; currentUser.paso_juego = 0; actualizarEstadoVisual('normal', true); alert("✅ Listo."); ejecutarCambioVista('clash_chat', null); });
-        socket.on('match_cancelado', (data) => { alert("⚠️ " + data.motivo); const pm=document.getElementById('private-messages'); if(pm)pm.innerHTML=''; actualizarEstadoVisual('normal', true); ejecutarCambioVista('clash_chat', null); });
+        socket.on('match_cancelado', (data) => { alert("⚠️ " + data.motivo); const pm = document.getElementById('private-messages'); if (pm) pm.innerHTML = ''; actualizarEstadoVisual('normal', true); ejecutarCambioVista('clash_chat', null); });
         socket.on('actualizar_negociacion', (data) => { inputGameMode.value = data.modo; inputBetAmount.value = data.dinero; validarNegociacion(); });
         socket.on('mensaje_privado', (data) => agregarBurbuja(data, document.getElementById('private-messages')));
         // --- NOTIFICACIÓN DE PAGOS (NEQUI) ---
@@ -720,10 +739,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     // Game Interactions
-    if(btnBuscar) btnBuscar.addEventListener('click', () => { if(!currentUser) return; if (currentUser.saldo < 5000) { alert("Saldo insuficiente"); return; } if (currentUser.estado === 'normal') { actualizarEstadoVisual('buscando_partida'); socket.emit('buscar_partida', currentUser); } else if (currentUser.estado === 'buscando_partida') { actualizarEstadoVisual('normal'); socket.emit('cancelar_busqueda'); } });
-    if(btnCancelMatch) btnCancelMatch.addEventListener('click', () => { if(confirm("¿Cancelar?")) socket.emit('cancelar_match', { motivo: 'Oprimió X' }); });
+    if (btnBuscar) btnBuscar.addEventListener('click', () => { if (!currentUser) return; if (currentUser.saldo < 5000) { alert("Saldo insuficiente"); return; } if (currentUser.estado === 'normal') { actualizarEstadoVisual('buscando_partida'); socket.emit('buscar_partida', currentUser); } else if (currentUser.estado === 'buscando_partida') { actualizarEstadoVisual('normal'); socket.emit('cancelar_busqueda'); } });
+    if (btnCancelMatch) btnCancelMatch.addEventListener('click', () => { if (confirm("¿Cancelar?")) socket.emit('cancelar_match', { motivo: 'Oprimió X' }); });
 
-    function validarNegociacion() { 
+    function validarNegociacion() {
         // 1. Buscar elementos frescos (Para asegurar que no se pierdan)
         const elTexto = document.getElementById('win-text');
         const elInputModo = document.getElementById('input-game-mode');
@@ -731,23 +750,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!elInputModo || !elInputDinero) return; // Protección
 
-        const modo = elInputModo.value.trim(); 
+        const modo = elInputModo.value.trim();
         const valorRaw = elInputDinero.value;
-        const dinero = parseInt(valorRaw); 
+        const dinero = parseInt(valorRaw);
 
-        let error = ""; 
+        let error = "";
 
         // 2. Validaciones
-        if (modo.length < 3) {} 
-        else if (!valorRaw) {} // Si está vacío
-        else if (isNaN(dinero)) {} 
-        else if (dinero < 5000) { error = "Mínimo $5.000"; } 
-        else if (dinero > 25000) { error = "Máximo $25.000"; } 
-        else if (dinero > maxBetAllowed) { error = `Tope saldos: $${maxBetAllowed}`; } 
+        if (modo.length < 3) { }
+        else if (!valorRaw) { } // Si está vacío
+        else if (isNaN(dinero)) { }
+        else if (dinero < 5000) { error = "Mínimo $5.000"; }
+        else if (dinero > 25000) { error = "Máximo $25.000"; }
+        else if (dinero > maxBetAllowed) { error = `Tope saldos: $${maxBetAllowed}`; }
 
         // Mostrar error si existe
         const elMsg = document.getElementById('validation-msg');
-        if (elMsg) elMsg.textContent = error; 
+        if (elMsg) elMsg.textContent = error;
 
         // 3. CÁLCULO DE GANANCIA (Aquí estaba el problema)
         if (elTexto) {
@@ -768,19 +787,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // 4. Activar botón
-        if (btnStartGame) { 
-            if (error === "" && modo.length >= 3 && !isNaN(dinero)) { 
-                btnStartGame.disabled = false; 
-                btnStartGame.classList.add('enabled'); 
-            } else { 
-                btnStartGame.disabled = true; 
-                btnStartGame.classList.remove('enabled'); 
-            } 
-        } 
+        if (btnStartGame) {
+            if (error === "" && modo.length >= 3 && !isNaN(dinero)) {
+                btnStartGame.disabled = false;
+                btnStartGame.classList.add('enabled');
+            } else {
+                btnStartGame.disabled = true;
+                btnStartGame.classList.remove('enabled');
+            }
+        }
     }
 
     const enviarNegociacion = () => { validarNegociacion(); socket.emit('negociacion_live', { salaId: currentRoomId, modo: inputGameMode.value, dinero: inputBetAmount.value }); };
-    if(inputGameMode) inputGameMode.addEventListener('input', enviarNegociacion); if(inputBetAmount) inputBetAmount.addEventListener('input', enviarNegociacion);
+    if (inputGameMode) inputGameMode.addEventListener('input', enviarNegociacion); if (inputBetAmount) inputBetAmount.addEventListener('input', enviarNegociacion);
 
     // --- ACTUALIZACIÓN DE SALDO EN VIVO ---
     socket.on('actualizar_saldo', (nuevoSaldo) => {
@@ -799,9 +818,9 @@ document.addEventListener('DOMContentLoaded', () => {
             btnStartGame.style.backgroundColor = "#faa61a"; // Amarillo
 
             // Enviar voto
-            socket.emit('iniciar_juego', { 
-                dinero: inputBetAmount.value, 
-                modo: inputGameMode.value 
+            socket.emit('iniciar_juego', {
+                dinero: inputBetAmount.value,
+                modo: inputGameMode.value
             });
         });
     }
@@ -868,12 +887,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- RESTAURACIÓN DE DATOS AL VOLVER (CORREGIDO) ---
-    if(socket) {
+    if (socket) {
         socket.on('restaurar_partida', (data) => {
             console.log("Restaurando datos de partida...", data);
 
             // 1. Recuperar variables críticas (Esto arregla el chat)
-            currentRoomId = data.salaId; 
+            currentRoomId = data.salaId;
             maxBetAllowed = data.maxApuesta;
 
             // 2. Llenar datos visuales
@@ -938,53 +957,66 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    if(btnWin && btnLose && btnConfirmResult) { 
-        btnWin.addEventListener('click', () => { 
-            resultadoSeleccionado = 'gane'; 
-            btnWin.classList.add('selected'); 
-            btnLose.classList.remove('selected'); 
-            resultText.textContent = "VICTORIA 👑"; 
-            btnConfirmResult.disabled = false; 
-        }); 
-        btnLose.addEventListener('click', () => { 
-            resultadoSeleccionado = 'perdi'; 
-            btnLose.classList.add('selected'); 
-            btnWin.classList.remove('selected'); 
-            resultText.textContent = "DERROTA 💀"; 
-            btnConfirmResult.disabled = false; 
-        }); 
-        btnConfirmResult.addEventListener('click', () => { 
-            if(resultadoSeleccionado) { 
-                socket.emit('reportar_resultado', { resultado: resultadoSeleccionado, usuarioId: currentUser.id }); 
-                btnConfirmResult.textContent = "⏳ Esperando al rival..."; 
-                btnConfirmResult.disabled = true; 
+    if (btnWin && btnLose && btnConfirmResult) {
+        btnWin.addEventListener('click', () => {
+            resultadoSeleccionado = 'gane';
+            btnWin.classList.add('selected');
+            btnLose.classList.remove('selected');
+            resultText.textContent = "VICTORIA 👑";
+            btnConfirmResult.disabled = false;
+        });
+        btnLose.addEventListener('click', () => {
+            resultadoSeleccionado = 'perdi';
+            btnLose.classList.add('selected');
+            btnWin.classList.remove('selected');
+            resultText.textContent = "DERROTA 💀";
+            btnConfirmResult.disabled = false;
+        });
+        btnConfirmResult.addEventListener('click', () => {
+            if (resultadoSeleccionado) {
+                socket.emit('reportar_resultado', { resultado: resultadoSeleccionado, usuarioId: currentUser.id });
+                btnConfirmResult.textContent = "⏳ Esperando al rival...";
+                btnConfirmResult.disabled = true;
                 btnConfirmResult.style.background = "#faa61a";
-            } 
-        }); 
+            }
+        });
     }
 
     // --- CHAT PRIVADO ---
-    if(privateChatForm) { 
-        privateChatForm.addEventListener('submit', (e) => { 
-            e.preventDefault(); 
-            const input = document.getElementById('private-input'); 
-            if(input.value && currentRoomId && currentUser) { 
+    if (privateChatForm) {
+        privateChatForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const input = document.getElementById('private-input');
+            if (input.value && currentRoomId && currentUser) {
                 socket.emit('mensaje_privado', {
-                    salaId: currentRoomId, 
-                    usuario: currentUser.username, 
+                    salaId: currentRoomId,
+                    usuario: currentUser.username,
                     texto: input.value
-                }); 
-                input.value = ''; 
-            } 
-        }); 
+                });
+                input.value = '';
+            }
+        });
     }
 
     // EXTRAS
-    if(mobileMenuBtn) mobileMenuBtn.addEventListener('click', () => { sidebar.classList.toggle('open'); mobileOverlay.classList.toggle('open'); });
-    if(mobileOverlay) mobileOverlay.addEventListener('click', () => { sidebar.classList.remove('open'); mobileOverlay.classList.remove('open'); });
+    if (mobileMenuBtn) mobileMenuBtn.addEventListener('click', () => { sidebar.classList.toggle('open'); mobileOverlay.classList.toggle('open'); });
+    if (mobileOverlay) mobileOverlay.addEventListener('click', () => { sidebar.classList.remove('open'); mobileOverlay.classList.remove('open'); });
     if (btnLogout) btnLogout.addEventListener('click', async () => {
-        await fetch('/api/logout', { method: 'POST' }); // Borra la cookie
-        location.reload();
+        // --- LOGOUT MEJORADO: Desconectar y limpiar caché ---
+        console.log("🚪 Cerrando sesión...");
+
+        // 1. Desconectar socket primero
+        if (socket) socket.disconnect();
+
+        // 2. Limpiar estado local
+        currentUser = null;
+        sessionUserId = null; // Clear sessionUserId on logout
+
+        // 3. Llamar al servidor para borrar cookie
+        await fetch('/api/logout', { method: 'POST' });
+
+        // 4. Forzar recarga sin caché (evita bfcache) agregando parámetro único
+        window.location.href = window.location.origin + window.location.pathname + '?logout=' + Date.now();
     });
     // --- ESCUDO CONTRA RECARGAS ACCIDENTALES ---
     window.addEventListener('beforeunload', (e) => {
@@ -992,7 +1024,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentUser && currentUser.estado !== 'normal') {
             // Mensaje estándar (Los navegadores modernos ignoran el texto personalizado y ponen el suyo propio)
             e.preventDefault();
-            e.returnValue = ''; 
+            e.returnValue = '';
             return '';
         }
         // Si está en estado 'normal' (Libre), dejamos que recargue sin molestar.
@@ -1014,39 +1046,39 @@ document.addEventListener('DOMContentLoaded', () => {
     // Intentar activar al entrar y al volver a la pestaña
     activarPantalla();
 
-    // --- RELOAD TOTAL AL RESTAURAR DESDE CACHÉ O TRAS SUSPENSIÓN ---
-    window.addEventListener('pageshow', (event) => {
-      if (event.persisted) {
-        console.log("♻️ Página restaurada desde caché (bfcache). Forzando recarga...");
-        window.location.reload(true);
-      }
-    });
+    // --- DETECTAR REAPERTURA DEL NAVEGADOR / PÉRDIDA DE FOCO (CORREGIDO) ---
+    let lastVisibleTime = Date.now();
 
-    // --- DETECTAR REAPERTURA DEL NAVEGADOR / PÉRDIDA DE FOCO ---
-    let lastVisible = Date.now();
+    document.addEventListener('visibilitychange', async () => {
+        if (document.visibilityState === 'visible') {
+            console.log("👁️ Volviendo al foco — verificando sesión y sincronización...");
+            const now = Date.now();
+            const inactiveDuration = now - lastVisibleTime;
 
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        console.log("👁️ Volviendo al foco — verificando sesión y sincronización...");
-        const now = Date.now();
+            // Si estuvo inactivo más de 5 segundos, forzamos recarga total
+            if (inactiveDuration > 5000) {
+                console.warn(`⏰ Inactividad detectada (${Math.round(inactiveDuration / 1000)}s), recargando...`);
+                window.location.reload(true);
+                return;
+            }
 
-        // Si estuvo inactivo más de 5 segundos, forzamos recarga total
-        if (now - lastVisible > 5000) {
-          console.warn("⏰ Inactividad detectada, recargando para asegurar sincronización.");
-            await (2000);
-          window.location.reload(true);
-          return;
+            // Verificar que la sesión sigue siendo del mismo usuario
+            const user = await verificarSesion(false);
+            if (user && currentUser && user.id !== currentUser.id) {
+                console.warn("⚠️ Sesión diferente detectada. Recargando...");
+                window.location.reload(true);
+                return;
+            }
+
+            // Reconectar socket si es necesario
+            if (socket && socket.disconnected) {
+                console.log("🔌 Reconectando socket...");
+                socket.connect();
+                // Re-registrar el socket con los datos del usuario
+                if (currentUser) socket.emit('registrar_socket', currentUser);
+            }
+        } else {
+            lastVisibleTime = Date.now();
         }
-
-        // Si no, solo verificamos sesión y reconectamos socket
-        verificarSesion();
-        if (socket && socket.disconnected) {
-          console.log("🔌 Reconectando socket...");
-          socket.connect();
-        }
-      } else {
-        lastVisible = Date.now();
-      }
     });
 });
-
