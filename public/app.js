@@ -3,34 +3,30 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log("✅ SISTEMA V5 - SINCRONIZADO");
     // --- AUTO-LOGIN CON COOKIES ---
     async function verificarSesion() {
-      try {
-        const res = await fetch('/api/session');
-        if (res.ok) {
-          const data = await res.json();
-
-          // ✅ Si ya hay un usuario logueado, pero es diferente al actual, forzamos recarga
-          if (currentUser && currentUser.username !== data.user.username) {
-            console.warn("⚠️ Usuario cambió, recargando para limpiar vista...");
-            window.location.reload(true);
-            return;
-          }
-
-          // ✅ Si todo está bien, reingresamos normalmente
-          console.log("🍪 Sesión restaurada:", data.user.username);
-          enterLobby(data.user);
-        } else {
-          // Si no hay sesión, limpiar UI
-          if (currentUser) {
-            console.log("🚪 Sesión expirada, limpiando...");
-            currentUser = null;
-            window.location.reload(true);
-          }
+        try {
+            const res = await fetch('/api/session');
+            if (res.ok) {
+                const data = await res.json();
+                console.log("🍪 Sesión restaurada:", data.user.username);
+                enterLobby(data.user); // ¡Entra directo sin pedir clave!
+            }
+        } catch (e) {
+            console.log("No hay sesión activa.");
         }
-      } catch (e) {
-        console.error("Error verificando sesión:", e);
-      }
     }
+    verificarSesion(); 
+    try { socket = io(); } catch (e) { console.error(e); } // Socket normal sin lógica extra
 
+    // --- FIX MAESTRO: AUTO-RECARGA POR SUSPENSIÓN ---
+
+    // 1. Detectar si Chrome restauró la página desde la memoria (La "Foto")
+    window.addEventListener('pageshow', (event) => {
+        // 'persisted' es true si la página no se cargó de la red, sino del caché
+        if (event.persisted) {
+            console.log("♻️ Página restaurada de caché. Forzando recarga...");
+            window.location.reload();
+        }
+    });
 
     // 2. Detectar si el celular "durmió" la aplicación (Suspensión)
     let lastTime = Date.now();
@@ -1018,37 +1014,21 @@ document.addEventListener('DOMContentLoaded', () => {
     // Intentar activar al entrar y al volver a la pestaña
     activarPantalla();
 
-    // --- RELOAD TOTAL AL RESTAURAR DESDE CACHÉ O TRAS SUSPENSIÓN ---
-    window.addEventListener('pageshow', (event) => {
-      if (event.persisted) {
-        console.log("♻️ Página restaurada desde caché (bfcache). Forzando recarga...");
-        window.location.reload(true);
-      }
-    });
-
-    // --- DETECTAR REAPERTURA DEL NAVEGADOR / PÉRDIDA DE FOCO ---
-    let lastVisible = Date.now();
-
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        console.log("👁️ Volviendo al foco — verificando sesión y sincronización...");
-        const now = Date.now();
+        // Si el usuario vuelve a mirar la app
+        if (document.visibilityState === 'visible') {
+            console.log("👁️ Regresaste: Verificando estado real en base de datos...");
 
-        // Si estuvo inactivo más de 5 segundos, forzamos recarga total
-        if (now - lastVisible > 5000) {
-          console.warn("⏰ Inactividad detectada, recargando para asegurar sincronización.");
-          window.location.reload(true);
-          return;
-        }
+            // 1. Forzamos una petición HTTP para ver en qué estado REAL estamos en la BD
+            // (Esto arregla si el servidor te sacó por inactividad mientras no mirabas)
+            verificarSesion(); 
 
-        // Si no, solo verificamos sesión y reconectamos socket
-        verificarSesion();
-        if (socket && socket.disconnected) {
-          console.log("🔌 Reconectando socket...");
-          socket.connect();
+            // 2. Si el socket murió, lo revivimos manualmente
+            if (socket && socket.disconnected) {
+                console.log("🔌 Reviviendo socket muerto...");
+                socket.connect();
+            }
         }
-      } else {
-        lastVisible = Date.now();
-      }
     });
-})
+});
+
