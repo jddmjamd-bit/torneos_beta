@@ -1014,21 +1014,38 @@ document.addEventListener('DOMContentLoaded', () => {
     // Intentar activar al entrar y al volver a la pestaña
     activarPantalla();
 
+    // --- RELOAD TOTAL AL RESTAURAR DESDE CACHÉ O TRAS SUSPENSIÓN ---
+    window.addEventListener('pageshow', (event) => {
+      if (event.persisted) {
+        console.log("♻️ Página restaurada desde caché (bfcache). Forzando recarga...");
+        window.location.reload(true);
+      }
+    });
+
+    // --- DETECTAR REAPERTURA DEL NAVEGADOR / PÉRDIDA DE FOCO ---
+    let lastVisible = Date.now();
+
     document.addEventListener('visibilitychange', () => {
-        // Si el usuario vuelve a mirar la app
-        if (document.visibilityState === 'visible') {
-            console.log("👁️ Regresaste: Verificando estado real en base de datos...");
+      if (document.visibilityState === 'visible') {
+        console.log("👁️ Volviendo al foco — verificando sesión y sincronización...");
+        const now = Date.now();
 
-            // 1. Forzamos una petición HTTP para ver en qué estado REAL estamos en la BD
-            // (Esto arregla si el servidor te sacó por inactividad mientras no mirabas)
-            verificarSesion(); 
-
-            // 2. Si el socket murió, lo revivimos manualmente
-            if (socket && socket.disconnected) {
-                console.log("🔌 Reviviendo socket muerto...");
-                socket.connect();
-            }
+        // Si estuvo inactivo más de 5 segundos, forzamos recarga total
+        if (now - lastVisible > 5000) {
+          console.warn("⏰ Inactividad detectada, recargando para asegurar sincronización.");
+          window.location.reload(true);
+          return;
         }
+
+        // Si no, solo verificamos sesión y reconectamos socket
+        verificarSesion();
+        if (socket && socket.disconnected) {
+          console.log("🔌 Reconectando socket...");
+          socket.connect();
+        }
+      } else {
+        lastVisible = Date.now();
+      }
     });
 });
 
