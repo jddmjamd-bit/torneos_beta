@@ -1033,6 +1033,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Si estuvo inactivo más de 5 segundos, forzamos recarga total
         if (now - lastVisible > 5000) {
           console.warn("⏰ Inactividad detectada, recargando para asegurar sincronización.");
+            await (2000);
           window.location.reload(true);
           return;
         }
