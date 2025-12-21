@@ -1,11 +1,17 @@
 let socket;
 let sessionUserId = null; // ID del usuario de la sesión actual para detectar cambios
 
+// --- CONFIGURACIÓN PARA APP MÓVIL CAPACITOR ---
+const isNativeApp = typeof window.Capacitor !== 'undefined';
+const API_BASE_URL = isNativeApp ? 'https://torneos-beta.onrender.com' : '';
+console.log(`📱 Modo: ${isNativeApp ? 'APP NATIVA' : 'WEB'}, API: ${API_BASE_URL || 'local'}`);
+
 // --- FUNCIÓN GLOBAL DE VERIFICACIÓN DE SESIÓN (Accesible desde visibilitychange) ---
 async function verificarSesion(enterIfValid = true) {
     try {
-        const res = await fetch('/api/session', {
-            headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+        const res = await fetch(API_BASE_URL + '/api/session', {
+            headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' },
+            credentials: 'include'
         });
         if (res.ok) {
             const data = await res.json();
@@ -26,12 +32,18 @@ async function verificarSesion(enterIfValid = true) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log("✅ SISTEMA V6 - ANTI-CACHÉ");
+    console.log("✅ SISTEMA V7 - CAPACITOR READY");
     // --- AUTO-LOGIN CON COOKIES ---
     verificarSesion(true).then(user => {
         if (user) enterLobby(user);
     });
-    try { socket = io(); } catch (e) { console.error(e); } // Socket normal sin lógica extra
+
+    // Socket.IO - Conexión remota para app móvil, local para web
+    try {
+        socket = isNativeApp
+            ? io(API_BASE_URL, { transports: ['websocket', 'polling'], withCredentials: true })
+            : io();
+    } catch (e) { console.error(e); }
 
     // --- FIX MAESTRO: AUTO-RECARGA POR SUSPENSIÓN ---
 
@@ -177,8 +189,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (linkToLogin) linkToLogin.addEventListener('click', (e) => { e.preventDefault(); registroContainer.classList.add('hidden'); loginContainer.classList.remove('hidden'); });
     if (linkToRegister) linkToRegister.addEventListener('click', (e) => { e.preventDefault(); loginContainer.classList.add('hidden'); registroContainer.classList.remove('hidden'); });
 
-    if (loginForm) loginForm.addEventListener('submit', async (e) => { e.preventDefault(); try { const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(loginForm))) }); const r = await res.json(); if (res.ok) { if (!r.user.tipo_suscripcion) r.user.tipo_suscripcion = 'free'; enterLobby(r.user); } else alert(r.error); } catch (e) { } });
-    if (registroForm) registroForm.addEventListener('submit', async (e) => { e.preventDefault(); try { const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(registroForm))) }); if (res.ok) { alert('Creado'); registroContainer.classList.add('hidden'); loginContainer.classList.remove('hidden'); } else alert('Error'); } catch (e) { } });
+    if (loginForm) loginForm.addEventListener('submit', async (e) => { e.preventDefault(); try { const res = await fetch(API_BASE_URL + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(loginForm))) }); const r = await res.json(); if (res.ok) { if (!r.user.tipo_suscripcion) r.user.tipo_suscripcion = 'free'; enterLobby(r.user); } else alert(r.error); } catch (e) { } });
+    if (registroForm) registroForm.addEventListener('submit', async (e) => { e.preventDefault(); try { const res = await fetch(API_BASE_URL + '/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(registroForm))) }); if (res.ok) { alert('Creado'); registroContainer.classList.add('hidden'); loginContainer.classList.remove('hidden'); } else alert('Error'); } catch (e) { } });
 
     function enterLobby(user) {
         currentUser = user;
@@ -356,7 +368,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btnAutoDeposit.textContent = `Pagar $${totalPagar.toLocaleString()} con Wompi (Simulado)`;
         });
     }
-    if (btnManualDeposit) btnManualDeposit.addEventListener('click', async () => { const m = document.getElementById('manual-amount').value; const r = document.getElementById('manual-ref').value; if (!m || !r) return alert("Datos?"); const res = await fetch('/api/transaction/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: currentUser.id, username: currentUser.username, tipo: 'deposito', metodo: 'manual_nequi', monto: m, referencia: r }) }); const d = await res.json(); alert(d.message); depositModal.classList.add('hidden'); });
+    if (btnManualDeposit) btnManualDeposit.addEventListener('click', async () => { const m = document.getElementById('manual-amount').value; const r = document.getElementById('manual-ref').value; if (!m || !r) return alert("Datos?"); const res = await fetch(API_BASE_URL + '/api/transaction/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: currentUser.id, username: currentUser.username, tipo: 'deposito', metodo: 'manual_nequi', monto: m, referencia: r }) }); const d = await res.json(); alert(d.message); depositModal.classList.add('hidden'); });
     if (btnAutoDeposit) {
         btnAutoDeposit.addEventListener('click', async () => {
             const monto = autoInput.value;
@@ -367,7 +379,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             try {
                 // 1. Pedir datos de transacción al servidor
-                const res = await fetch('/api/wompi/init', {
+                const res = await fetch(API_BASE_URL + '/api/wompi/init', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -423,7 +435,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const datosCuenta = `${cuenta} - ${nombre}`;
 
-            const res = await fetch('/api/transaction/withdraw', {
+            const res = await fetch(API_BASE_URL + '/api/transaction/withdraw', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -450,7 +462,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnAdminPanel) btnAdminPanel.addEventListener('click', () => { adminPanelOverlay.classList.remove('hidden'); cargarTransaccionesAdmin(); });
     // --- ADMIN PANEL MEJORADO (COLORES) ---
     window.cargarTransaccionesAdmin = async () => {
-        const res = await fetch('/api/admin/transactions');
+        const res = await fetch(API_BASE_URL + '/api/admin/transactions');
         const list = await res.json();
         const c = document.getElementById('admin-transactions-list');
         c.innerHTML = '';
@@ -480,10 +492,10 @@ document.addEventListener('DOMContentLoaded', () => {
             c.appendChild(div);
         });
     };
-    window.procesarTransaccionAdmin = async (id, act) => { if (!confirm(`¿${act}?`)) return; const res = await fetch('/api/admin/transaction/process', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transId: id, action: act }) }); const d = await res.json(); alert(d.message); cargarTransaccionesAdmin(); };
+    window.procesarTransaccionAdmin = async (id, act) => { if (!confirm(`¿${act}?`)) return; const res = await fetch(API_BASE_URL + '/api/admin/transaction/process', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transId: id, action: act }) }); const d = await res.json(); alert(d.message); cargarTransaccionesAdmin(); };
     // --- LÓGICA DISPUTAS ADMIN (CON CULPABLE) ---
     window.cargarDisputasAdmin = async () => {
-        const res = await fetch('/api/admin/disputes');
+        const res = await fetch(API_BASE_URL + '/api/admin/disputes');
         const list = await res.json();
         const c = document.getElementById('admin-disputes-list');
         c.innerHTML = '';
@@ -534,7 +546,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!confirm(`SENTENCIA:\n\n🏆 Gana: ${ganador}\n💀 Culpable: ${culpable}\n\n¿Confirmar?`)) return;
 
-        await fetch('/api/admin/resolve-dispute', {
+        await fetch(API_BASE_URL + '/api/admin/resolve-dispute', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 matchId: id,
@@ -560,7 +572,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     window.cargarEstadisticasAdmin = async () => {
-        const res = await fetch('/api/admin/stats');
+        const res = await fetch(API_BASE_URL + '/api/admin/stats');
         const data = await res.json();
 
         // Llenar cuadros grandes
@@ -1013,7 +1025,7 @@ document.addEventListener('DOMContentLoaded', () => {
         sessionUserId = null; // Clear sessionUserId on logout
 
         // 3. Llamar al servidor para borrar cookie
-        await fetch('/api/logout', { method: 'POST' });
+        await fetch(API_BASE_URL + '/api/logout', { method: 'POST' });
 
         // 4. Forzar recarga sin caché (evita bfcache) agregando parámetro único
         window.location.href = window.location.origin + window.location.pathname + '?logout=' + Date.now();
