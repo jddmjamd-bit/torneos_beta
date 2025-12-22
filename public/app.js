@@ -34,16 +34,32 @@ async function verificarSesion(enterIfValid = true) {
 document.addEventListener('DOMContentLoaded', () => {
     console.log("✅ SISTEMA V8 - CLASH ROYALE API READY");
 
-    // --- SOLICITAR PERMISO DE MICRÓFONO (Para actualización futura) ---
-    // En apps nativas con Capacitor, los permisos se manejan a nivel nativo
-    // El permiso debe estar declarado en AndroidManifest.xml para que funcione
-    if (!isNativeApp) {
-        // Solo pedir en web, en Android se debe configurar en AndroidManifest
+    // --- SOLICITAR PERMISOS EN APP NATIVA ---
+    if (isNativeApp) {
+        console.log("📱 App nativa detectada - Solicitando permisos...");
+
+        // Usar el plugin de Camera de Capacitor para solicitar permisos
+        // Esto dispara el diálogo nativo de Android automáticamente
+        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Camera) {
+            const Camera = window.Capacitor.Plugins.Camera;
+
+            // Solicitar permisos de cámara y fotos
+            Camera.checkPermissions().then(status => {
+                console.log("📷 Estado permisos cámara:", status);
+                if (status.camera !== 'granted' || status.photos !== 'granted') {
+                    Camera.requestPermissions({ permissions: ['camera', 'photos'] })
+                        .then(result => console.log("📷 Permisos solicitados:", result))
+                        .catch(e => console.log("📷 Error pidiendo permisos:", e));
+                }
+            }).catch(e => console.log("📷 Error verificando permisos:", e));
+        } else {
+            console.log("⚠️ Plugin Camera no disponible");
+        }
+    } else {
+        // En web, pedir permiso de micrófono via API web
         navigator.mediaDevices.getUserMedia({ audio: true })
             .then(() => console.log("🎤 Permiso de micrófono concedido"))
             .catch(e => console.log("🎤 Permiso de micrófono denegado:", e.message));
-    } else {
-        console.log("🎤 App nativa - Permiso de micrófono manejado por Android/iOS nativo");
     }
 
     // --- AUTO-LOGIN CON COOKIES ---
@@ -799,10 +815,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         // --- PROTECCIÓN CONTRA SESIONES DUPLICADAS ---
-        socket.on('sesion_duplicada', (data) => {
+        socket.on('sesion_duplicada', async (data) => {
             alert("⚠️ " + data.mensaje + "\n\nSerás redirigido al login.");
             currentUser = null;
             sessionUserId = null;
+            // Importante: Borrar cookie antes de redirigir para evitar loop de auto-login
+            try {
+                await fetch(API_BASE_URL + '/api/logout', { method: 'POST' });
+            } catch (e) { }
             // Redirigir al login
             window.location.href = window.location.origin + window.location.pathname + '?kicked=' + Date.now();
         });
