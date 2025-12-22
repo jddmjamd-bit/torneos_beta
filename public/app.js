@@ -797,6 +797,15 @@ document.addEventListener('DOMContentLoaded', () => {
             // Esto le saldrá solo al usuario que recargó
             alert(data.mensaje);
         });
+
+        // --- PROTECCIÓN CONTRA SESIONES DUPLICADAS ---
+        socket.on('sesion_duplicada', (data) => {
+            alert("⚠️ " + data.mensaje + "\n\nSerás redirigido al login.");
+            currentUser = null;
+            sessionUserId = null;
+            // Redirigir al login
+            window.location.href = window.location.origin + window.location.pathname + '?kicked=' + Date.now();
+        });
     }
 
 

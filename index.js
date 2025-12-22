@@ -544,6 +544,25 @@ app.post('/api/admin/resolve-dispute', async (req, res) => {
 io.on('connection', (socket) => {
     // REGISTRAR
     socket.on('registrar_socket', async (user) => {
+        // --- PROTECCIÓN: Desconectar sesiones anteriores del mismo usuario ---
+        // Esto previene que un usuario juegue contra sí mismo desde dos dispositivos
+        for (const [socketId, existingSocket] of io.sockets.sockets) {
+            if (existingSocket.userData &&
+                existingSocket.userData.id == user.id &&
+                socketId !== socket.id) {
+                console.log(`🚫 Desconectando sesión anterior de ${user.username} (${socketId})`);
+                existingSocket.emit('sesion_duplicada', {
+                    mensaje: 'Tu cuenta se conectó desde otro dispositivo'
+                });
+                existingSocket.disconnect(true);
+            }
+        }
+
+        // También remover de la cola de espera si estaba buscando
+        colaEsperaClash = colaEsperaClash.filter(s =>
+            !s.userData || s.userData.id != user.id || s.id === socket.id
+        );
+
         socket.userData = user;
         // Recuperar sala si existe
         if (user.sala_actual && activeMatches[user.sala_actual]) {
