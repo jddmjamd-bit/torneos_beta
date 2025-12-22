@@ -70,6 +70,22 @@ async function logClash(texto) {
 const CLASH_API_TOKEN = process.env.CLASH_ROYALE_API_TOKEN;
 const CLASH_API_BASE = 'https://api.clashroyale.com/v1';
 
+// Endpoint para verificar qué IP está usando el servidor (para whitelist de Clash API)
+app.get('/check-ip', async (req, res) => {
+    try {
+        // Usar servicio externo para ver nuestra IP pública
+        const response = await fetch('https://api.ipify.org?format=json');
+        const data = await response.json();
+        res.json({
+            mensaje: 'Esta es la IP que debes agregar en la API de Clash Royale:',
+            ip: data.ip,
+            instrucciones: 'Ve a developer.clashroyale.com y agrega esta IP exacta a tu token'
+        });
+    } catch (e) {
+        res.json({ error: 'No se pudo obtener la IP', detalle: e.message });
+    }
+});
+
 // Función para obtener el battle log de un jugador
 async function fetchBattleLog(playerTag) {
     if (!CLASH_API_TOKEN) {
