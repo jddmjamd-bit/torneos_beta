@@ -35,9 +35,16 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log("✅ SISTEMA V8 - CLASH ROYALE API READY");
 
     // --- SOLICITAR PERMISO DE MICRÓFONO (Para actualización futura) ---
-    navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(() => console.log("🎤 Permiso de micrófono concedido"))
-        .catch(e => console.log("🎤 Permiso de micrófono denegado:", e.message));
+    // En apps nativas con Capacitor, los permisos se manejan a nivel nativo
+    // El permiso debe estar declarado en AndroidManifest.xml para que funcione
+    if (!isNativeApp) {
+        // Solo pedir en web, en Android se debe configurar en AndroidManifest
+        navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(() => console.log("🎤 Permiso de micrófono concedido"))
+            .catch(e => console.log("🎤 Permiso de micrófono denegado:", e.message));
+    } else {
+        console.log("🎤 App nativa - Permiso de micrófono manejado por Android/iOS nativo");
+    }
 
     // --- AUTO-LOGIN CON COOKIES ---
     verificarSesion(true).then(user => {
@@ -660,11 +667,23 @@ document.addEventListener('DOMContentLoaded', () => {
     setupChatForm(null, null, 'general'); setupChatForm(null, null, 'clash');
 
     const anuForm = chatElements.anuncios.form; if (anuForm) { anuForm.addEventListener('submit', (e) => { e.preventDefault(); const i = chatElements.anuncios.input; const fi = chatElements.anuncios.fileInput; const f = fi.files[0]; if (f && currentUser) { const r = new FileReader(); r.onload = (ev) => { const t = f.type.startsWith('video') ? 'video' : 'imagen'; socket.emit('mensaje_chat', { canal: 'anuncios', usuario: currentUser.username, texto: ev.target.result, tipo: t }); i.value = ''; fi.value = ''; }; r.readAsDataURL(f); } else if (i.value) { socket.emit('mensaje_chat', { canal: 'anuncios', usuario: currentUser.username, texto: i.value, tipo: 'texto' }); i.value = ''; } }); }
-    const picsUI = chatElements.clash_pics; if (picsUI.input) picsUI.input.addEventListener('change', function () { if (this.files[0]) { picsUI.nameDisplay.textContent = this.files[0].name; picsUI.nameDisplay.style.color = "#4ecca3"; } }); if (picsUI.form) picsUI.form.addEventListener('submit', (e) => { e.preventDefault(); const file = picsUI.input.files[0]; if (file && currentUser) { const reader = new FileReader(); reader.onload = function (evt) { socket.emit('mensaje_chat', { canal: 'clash_pics', usuario: currentUser.username, texto: evt.target.result, tipo: 'imagen' }); picsUI.input.value = ''; picsUI.nameDisplay.textContent = 'Ninguna'; }; reader.readAsDataURL(file); } else alert("Selecciona foto."); });
+    // clash_pics UI was removed - this line cleaned up to prevent errors
 
     if (socket) {
-        socket.on('historial_chat', (data) => { if (data.canal && chatStorage[data.canal]) { chatStorage[data.canal] = data.mensajes; if (currentUser) renderizarChat(data.canal); } });
-        socket.on('mensaje_chat', (data) => { const canal = data.canal || 'general'; if (chatStorage[canal]) { chatStorage[canal].push(data); if (currentUser) agregarBurbuja(data, chatLists[canal], canal); } });
+        socket.on('historial_chat', (data) => {
+            if (data.canal && chatStorage[data.canal] !== undefined) {
+                chatStorage[data.canal] = data.mensajes;
+                // Render chat if user is logged in, otherwise it will be rendered in enterLobby
+                if (currentUser) renderizarChat(data.canal);
+            }
+        });
+        socket.on('mensaje_chat', (data) => {
+            const canal = data.canal || 'general';
+            if (chatStorage[canal] !== undefined) {
+                chatStorage[canal].push(data);
+                if (currentUser && chatLists[canal]) agregarBurbuja(data, chatLists[canal], canal);
+            }
+        });
         socket.on('error_busqueda', (m) => { alert(m); actualizarEstadoVisual('normal'); });
 
         socket.on('partida_encontrada', (data) => {
