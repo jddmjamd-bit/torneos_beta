@@ -32,7 +32,13 @@ async function verificarSesion(enterIfValid = true) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log("✅ SISTEMA V7 - CAPACITOR READY");
+    console.log("✅ SISTEMA V8 - CLASH ROYALE API READY");
+
+    // --- SOLICITAR PERMISO DE MICRÓFONO (Para actualización futura) ---
+    navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(() => console.log("🎤 Permiso de micrófono concedido"))
+        .catch(e => console.log("🎤 Permiso de micrófono denegado:", e.message));
+
     // --- AUTO-LOGIN CON COOKIES ---
     verificarSesion(true).then(user => {
         if (user) enterLobby(user);
@@ -73,8 +79,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentUser = null;
     let currentRoomId = null;
     let maxBetAllowed = 0;
-    let chatStorage = { anuncios: [], general: [], clash: [], clash_pics: [], clash_logs: [] };
-    let lastDatePainted = { anuncios: null, general: null, clash: null, clash_pics: null, clash_logs: null };
+    let chatStorage = { anuncios: [], general: [], clash: [], clash_logs: [] };
+    let lastDatePainted = { anuncios: null, general: null, clash: null, clash_logs: null };
     let resultadoSeleccionado = null;
 
     // REFERENCIAS DOM
@@ -129,7 +135,6 @@ document.addEventListener('DOMContentLoaded', () => {
         general: document.getElementById('view-general'),
         clash_chat: document.getElementById('view-clash-chat'),
         clash_logs: document.getElementById('view-clash-logs'),
-        clash_pics: document.getElementById('view-clash-pics'),
         private: document.getElementById('view-private'),
         game_result: document.getElementById('view-game-result')
     };
@@ -139,15 +144,13 @@ document.addEventListener('DOMContentLoaded', () => {
         anuncios: document.getElementById('anuncios-messages-list'),
         general: document.getElementById('general-messages-list'),
         clash: document.getElementById('clash-messages-list'), // General Clash
-        clash_pics: document.getElementById('pics-messages-list'), // Fotos
         clash_logs: document.getElementById('logs-messages-list') // Registro
     };
 
     const chatElements = {
         anuncios: { form: document.getElementById('anuncios-chat-form'), input: document.getElementById('anuncios-msg-input'), fileInput: document.getElementById('anuncios-file-input'), fileName: document.getElementById('anuncios-file-name') },
         general: { form: document.getElementById('general-chat-form'), input: document.getElementById('general-msg-input') },
-        clash: { form: document.getElementById('clash-chat-form'), input: document.getElementById('clash-msg-input') },
-        clash_pics: { form: document.getElementById('clash-pics-form'), input: document.getElementById('clash-file-input'), nameDisplay: document.getElementById('file-name-display') }
+        clash: { form: document.getElementById('clash-chat-form'), input: document.getElementById('clash-msg-input') }
     };
 
     // --- FUNCIONES GLOBALES ---
@@ -167,8 +170,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.cambiarCanal = function (vista, btn) {
         if (currentUser) {
-            if (currentUser.estado === 'jugando_partida' && vista !== 'game_result') { alert("⛔ TERMINA EL PASO 1"); ejecutarCambioVista('game_result', null); return; }
-            if (currentUser.estado === 'subiendo_evidencia' && vista !== 'clash_pics') { alert("⛔ TERMINA EL PASO 2"); ejecutarCambioVista('clash_pics', null); return; }
+            if (currentUser.estado === 'jugando' && vista !== 'game_result') { alert("⛔ Espera el resultado de la API"); ejecutarCambioVista('game_result', null); return; }
             if (currentUser.estado === 'partida_encontrada' && vista !== 'private') { if (!confirm("⚠️ ¿SALIR? Se cancelará.")) return; socket.emit('cancelar_match', { motivo: 'Salió del chat' }); return; }
         }
         ejecutarCambioVista(vista, btn);
@@ -190,7 +192,26 @@ document.addEventListener('DOMContentLoaded', () => {
     if (linkToRegister) linkToRegister.addEventListener('click', (e) => { e.preventDefault(); loginContainer.classList.add('hidden'); registroContainer.classList.remove('hidden'); });
 
     if (loginForm) loginForm.addEventListener('submit', async (e) => { e.preventDefault(); try { const res = await fetch(API_BASE_URL + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(loginForm))) }); const r = await res.json(); if (res.ok) { if (!r.user.tipo_suscripcion) r.user.tipo_suscripcion = 'free'; enterLobby(r.user); } else alert(r.error); } catch (e) { } });
-    if (registroForm) registroForm.addEventListener('submit', async (e) => { e.preventDefault(); try { const res = await fetch(API_BASE_URL + '/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(registroForm))) }); if (res.ok) { alert('Creado'); registroContainer.classList.add('hidden'); loginContainer.classList.remove('hidden'); } else alert('Error'); } catch (e) { } });
+    if (registroForm) registroForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+            const res = await fetch(API_BASE_URL + '/api/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(Object.fromEntries(new FormData(registroForm)))
+            });
+            const data = await res.json();
+            if (res.ok) {
+                alert('¡Cuenta creada! Ahora inicia sesión.');
+                registroContainer.classList.add('hidden');
+                loginContainer.classList.remove('hidden');
+            } else {
+                alert('Error: ' + (data.error || 'Revisa los datos'));
+            }
+        } catch (e) {
+            alert('Error de conexión');
+        }
+    });
 
     function enterLobby(user) {
         currentUser = user;
@@ -214,19 +235,12 @@ document.addEventListener('DOMContentLoaded', () => {
         // --- RESTAURAR ESTADO Y VISTA SEGÚN LA BD (Prioridad absoluta) ---
         console.log("🔄 enterLobby - Estado desde BD:", user.estado, "paso_juego:", user.paso_juego);
 
-        if (user.estado === 'subiendo_evidencia' || user.paso_juego === 2) {
-            currentUser.estado = 'subiendo_evidencia';
-            currentUser.paso_juego = 2;
-            actualizarEstadoVisual('subiendo_evidencia');
-            ejecutarCambioVista('clash_pics', null);
-            console.log("➡️ Navegando a clash_pics (subiendo_evidencia)");
-        }
-        else if (user.estado === 'jugando_partida' || user.paso_juego === 1) {
-            currentUser.estado = 'jugando_partida';
-            currentUser.paso_juego = 1;
-            actualizarEstadoVisual('jugando_partida');
+        if (user.estado === 'jugando') {
+            currentUser.estado = 'jugando';
+            currentUser.paso_juego = 0;
+            actualizarEstadoVisual('jugando');
             ejecutarCambioVista('game_result', null);
-            console.log("➡️ Navegando a game_result (jugando_partida)");
+            console.log("➡️ Navegando a game_result (jugando)");
         }
         else if (user.estado === 'partida_encontrada') {
             currentUser.estado = 'partida_encontrada';
@@ -238,7 +252,7 @@ document.addEventListener('DOMContentLoaded', () => {
             actualizarEstadoVisual('normal');
         }
 
-        ['anuncios', 'general', 'clash', 'clash_pics', 'clash_logs'].forEach(renderizarChat);
+        ['anuncios', 'general', 'clash', 'clash_logs'].forEach(renderizarChat);
     }
 
     // Flag para proteger estados activos de ser reseteados accidentalmente
@@ -255,7 +269,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentUser) currentUser.estado = estado;
 
         // Activar/desactivar protección según el estado
-        estadoProtegido = (estado === 'partida_encontrada' || estado === 'jugando_partida' || estado === 'subiendo_evidencia');
+        estadoProtegido = (estado === 'partida_encontrada' || estado === 'jugando');
 
         const badge = document.getElementById('user-status-badge');
         const text = document.getElementById('status-text');
@@ -313,20 +327,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         btnBuscar.style.cursor = "not-allowed";
                     }
                     break;
-                case 'jugando_partida':
+                case 'jugando':
                     badge.classList.add('status-jugando');
-                    text.textContent = "🎮 Jugando (Paso 1)";
+                    text.textContent = "🔍 Esperando resultado...";
                     if (btnBuscar) {
                         btnBuscar.textContent = "🚫 JUGANDO";
-                        btnBuscar.disabled = true;
-                        btnBuscar.style.opacity = "0.5";
-                    }
-                    break;
-                case 'subiendo_evidencia':
-                    badge.classList.add('status-jugando');
-                    text.textContent = "📸 Foto (Paso 2)";
-                    if (btnBuscar) {
-                        btnBuscar.textContent = "🚫 SUBIR FOTO";
                         btnBuscar.disabled = true;
                         btnBuscar.style.opacity = "0.5";
                     }
@@ -718,27 +723,53 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         socket.on('juego_iniciado', (data) => {
-            currentUser.estado = 'jugando_partida';
-            currentUser.paso_juego = 1;
+            currentUser.estado = 'jugando';
+            currentUser.paso_juego = 0;
 
-            actualizarEstadoVisual('jugando_partida');
+            actualizarEstadoVisual('jugando');
             ejecutarCambioVista('game_result', null);
-            alert("¡JUEGO INICIADO! Buena suerte.");
+            alert("¡JUEGO INICIADO! La API detectará automáticamente el resultado.");
         });
-        //eventos de resultado
-        socket.on('esperando_rival_resultado', (msg) => {
-            alert(msg); // O simplemente dejar el botón en "Esperando..."
+
+        // Nuevo: Resultado detectado por API
+        socket.on('resultado_api', (data) => {
+            const statusText = document.getElementById('api-status-text');
+            const resultDisplay = document.getElementById('api-result-display');
+            const winnerText = document.getElementById('result-winner');
+            const crownsText = document.getElementById('result-crowns');
+
+            if (statusText) statusText.textContent = '¡Resultado detectado!';
+            if (resultDisplay) resultDisplay.style.display = 'block';
+            if (winnerText) winnerText.textContent = `🏆 ${data.ganador} ganó $${data.premio.toLocaleString()}`;
+            if (crownsText) crownsText.textContent = `Coronas: ${data.crowns}`;
+
+            alert(`🏆 RESULTADO: ${data.ganador} ganó $${data.premio.toLocaleString()}`);
+        });
+
+        // Nuevo: Disputa por timeout
+        socket.on('disputa_timeout', (data) => {
+            const statusText = document.getElementById('api-status-text');
+            if (statusText) statusText.textContent = '⏰ Tiempo agotado';
+            alert("⚠️ " + data.mensaje);
+        });
+
+        // Nuevo: Disputa creada (empate o error)
+        socket.on('disputa_creada', (data) => {
+            const statusText = document.getElementById('api-status-text');
+            if (statusText) statusText.textContent = '🚨 Disputa creada';
+            alert("⚠️ " + data.mensaje);
         });
 
         socket.on('error_disputa', (msg) => {
             alert("⛔ " + msg);
-            // Restauramos botones para que intenten de nuevo si se equivocaron
-            btnConfirmResult.textContent = "REINTENTAR CONFIRMACIÓN";
-            btnConfirmResult.disabled = false;
-            btnConfirmResult.style.background = "#ed4245"; // Rojo alerta
         });
-        socket.on('necesita_evidencia', () => { currentUser.estado = 'subiendo_evidencia'; currentUser.paso_juego = 2; actualizarEstadoVisual('subiendo_evidencia'); ejecutarCambioVista('clash_pics', null); alert("PASO 2: Sube la foto."); btnWin.classList.remove('selected'); btnLose.classList.remove('selected'); btnConfirmResult.textContent = "CONFIRMAR Y SUBIR FOTO"; });
-        socket.on('flujo_completado', () => { currentUser.estado = 'normal'; currentUser.paso_juego = 0; actualizarEstadoVisual('normal', true); alert("✅ Listo."); ejecutarCambioVista('clash_chat', null); });
+
+        socket.on('flujo_completado', () => {
+            currentUser.estado = 'normal';
+            currentUser.paso_juego = 0;
+            actualizarEstadoVisual('normal', true);
+            ejecutarCambioVista('clash_chat', null);
+        });
         socket.on('match_cancelado', (data) => { alert("⚠️ " + data.motivo); const pm = document.getElementById('private-messages'); if (pm) pm.innerHTML = ''; actualizarEstadoVisual('normal', true); ejecutarCambioVista('clash_chat', null); });
         socket.on('actualizar_negociacion', (data) => { inputGameMode.value = data.modo; inputBetAmount.value = data.dinero; validarNegociacion(); });
         socket.on('mensaje_privado', (data) => agregarBurbuja(data, document.getElementById('private-messages')));
@@ -885,8 +916,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Restaurar estado visual según el estado actual
         if (currentUser) {
-            if (currentUser.estado === 'jugando_partida') actualizarEstadoVisual('jugando_partida');
-            else if (currentUser.estado === 'subiendo_evidencia') actualizarEstadoVisual('subiendo_evidencia');
+            if (currentUser.estado === 'jugando') actualizarEstadoVisual('jugando');
             else actualizarEstadoVisual('partida_encontrada');
         }
 
@@ -895,7 +925,6 @@ document.addEventListener('DOMContentLoaded', () => {
             btnStartGame.disabled = false;
             btnStartGame.classList.add('enabled');
         }
-        if (btnConfirmResult && !resultadoSeleccionado) btnConfirmResult.disabled = false;
     });
 
     // --- RESTAURACIÓN DE DATOS AL VOLVER (CORREGIDO) ---
@@ -957,12 +986,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.estado === 'partida_encontrada') {
                 ejecutarCambioVista('private', null);
                 console.log("➡️ Restaurando vista: private");
-            } else if (data.estado === 'jugando_partida') {
+            } else if (data.estado === 'jugando') {
                 ejecutarCambioVista('game_result', null);
                 console.log("➡️ Restaurando vista: game_result");
-            } else if (data.estado === 'subiendo_evidencia') {
-                ejecutarCambioVista('clash_pics', null);
-                console.log("➡️ Restaurando vista: clash_pics");
             }
 
             console.log("Conexión recuperada y chat reactivado.");

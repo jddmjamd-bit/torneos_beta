@@ -33,6 +33,7 @@ const initDB = async () => {
             username TEXT UNIQUE,
             email TEXT UNIQUE,
             password TEXT,
+            player_tag TEXT,
             saldo NUMERIC DEFAULT 0,
             tipo_suscripcion TEXT DEFAULT 'free',
             estado TEXT DEFAULT 'normal',
@@ -52,6 +53,8 @@ const initDB = async () => {
             salidas_x INTEGER DEFAULT 0,
             salidas_canal INTEGER DEFAULT 0
         )`);
+        // Migración: Agregar columna player_tag si no existe
+        await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS player_tag TEXT`);
 
         // 2. Mensajes
         await db.query(`CREATE TABLE IF NOT EXISTS messages (
