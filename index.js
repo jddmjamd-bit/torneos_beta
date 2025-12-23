@@ -96,6 +96,8 @@ async function fetchBattleLog(playerTag) {
     try {
         // El tag debe estar URL-encoded (# = %23)
         const encodedTag = encodeURIComponent(playerTag);
+        console.log(`🎮 Consultando API para tag: ${playerTag} -> ${encodedTag}`);
+
         const response = await fetch(`${CLASH_API_BASE}/players/${encodedTag}/battlelog`, {
             headers: {
                 'Authorization': `Bearer ${CLASH_API_TOKEN}`,
@@ -104,36 +106,58 @@ async function fetchBattleLog(playerTag) {
         });
 
         if (!response.ok) {
-            console.error(`Error API Clash Royale: ${response.status} ${response.statusText}`);
+            console.error(`❌ Error API Clash Royale para ${playerTag}: ${response.status} ${response.statusText}`);
             return null;
         }
 
-        return await response.json();
+        const data = await response.json();
+        console.log(`✅ Battlelog obtenido para ${playerTag}: ${data.length} batallas encontradas`);
+        return data;
     } catch (e) {
-        console.error("Error fetching battle log:", e.message);
+        console.error("❌ Error fetching battle log:", e.message);
         return null;
     }
 }
 
 // Función para encontrar una partida entre dos jugadores después de cierta hora
+// Verifica AMBOS battlelogs para confirmar que la partida existe
 async function findMatchingBattle(tag1, tag2, startTime, lastCheckedBattleTime = null) {
     try {
-        const battles1 = await fetchBattleLog(tag1);
-        if (!battles1 || !Array.isArray(battles1)) return null;
+        console.log(`\n🔍 === BUSCANDO PARTIDA ===`);
+        console.log(`   Jugador 1: ${tag1}`);
+        console.log(`   Jugador 2: ${tag2}`);
+        console.log(`   Desde: ${startTime.toISOString()}`);
 
-        // Buscar batalla donde ambos jugadores participaron después de startTime
+        // Obtener battlelogs de AMBOS jugadores
+        const [battles1, battles2] = await Promise.all([
+            fetchBattleLog(tag1),
+            fetchBattleLog(tag2)
+        ]);
+
+        if (!battles1 || !Array.isArray(battles1)) {
+            console.log(`❌ No se pudo obtener battlelog del jugador 1 (${tag1})`);
+            return null;
+        }
+        if (!battles2 || !Array.isArray(battles2)) {
+            console.log(`❌ No se pudo obtener battlelog del jugador 2 (${tag2})`);
+            return null;
+        }
+
+        // Normalizar tags para comparación
+        const normalizedTag1 = tag1.toUpperCase();
+        const normalizedTag2 = tag2.toUpperCase();
+
+        // Buscar batalla en el log del jugador 1
         for (const battle of battles1) {
             // Convertir formato de batalla "20231221T192234.000Z" a Date
-            const battleTime = new Date(battle.battleTime.replace(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/, '$1-$2-$3T$4:$5:$6'));
+            const battleTimeStr = battle.battleTime;
+            const battleTime = new Date(battleTimeStr.replace(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/, '$1-$2-$3T$4:$5:$6'));
 
             // Ignorar batallas anteriores al inicio del match
             if (battleTime < startTime) continue;
 
             // Ignorar batallas ya procesadas
             if (lastCheckedBattleTime && battleTime <= lastCheckedBattleTime) continue;
-
-            // Solo PvP battles (no challenges, no tournaments, etc.)
-            if (battle.type !== 'PvP' && !battle.type.includes('ladder')) continue;
 
             // Verificar si el oponente es el otro jugador
             const team = battle.team?.[0];
@@ -143,17 +167,35 @@ async function findMatchingBattle(tag1, tag2, startTime, lastCheckedBattleTime =
 
             const teamTag = team.tag?.toUpperCase();
             const opponentTag = opponent.tag?.toUpperCase();
-            const normalizedTag1 = tag1.toUpperCase();
-            const normalizedTag2 = tag2.toUpperCase();
+
+            console.log(`   📋 Batalla tipo "${battle.type}" - ${teamTag} vs ${opponentTag} (${battleTimeStr})`);
 
             // Verificar que ambos jugadores están en la batalla
             const isMatchingBattle = (teamTag === normalizedTag1 && opponentTag === normalizedTag2) ||
                 (teamTag === normalizedTag2 && opponentTag === normalizedTag1);
 
             if (isMatchingBattle) {
+                console.log(`   ✅ ¡BATALLA ENCONTRADA entre los dos jugadores!`);
+
+                // VERIFICAR EN EL LOG DEL SEGUNDO JUGADOR para confirmar
+                const battleConfirmed = battles2.some(b2 => {
+                    const b2Time = new Date(b2.battleTime.replace(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/, '$1-$2-$3T$4:$5:$6'));
+                    // Comparar timestamps (con tolerancia de 5 segundos)
+                    return Math.abs(b2Time.getTime() - battleTime.getTime()) < 5000;
+                });
+
+                if (!battleConfirmed) {
+                    console.log(`   ⚠️ Batalla no confirmada en el log del segundo jugador, ignorando...`);
+                    continue;
+                }
+
+                console.log(`   ✅ Batalla CONFIRMADA en ambos logs!`);
+
                 // Determinar ganador por crowns
                 const teamCrowns = team.crowns || 0;
                 const opponentCrowns = opponent.crowns || 0;
+
+                console.log(`   🏆 Coronas: ${team.tag} = ${teamCrowns}, ${opponent.tag} = ${opponentCrowns}`);
 
                 let winnerTag = null;
                 if (teamCrowns > opponentCrowns) {
@@ -161,7 +203,12 @@ async function findMatchingBattle(tag1, tag2, startTime, lastCheckedBattleTime =
                 } else if (opponentCrowns > teamCrowns) {
                     winnerTag = opponentTag;
                 }
-                // Si empatan (no debería pasar en CR normal), winnerTag queda null
+
+                if (winnerTag) {
+                    console.log(`   🎉 GANADOR: ${winnerTag}`);
+                } else {
+                    console.log(`   ⚖️ EMPATE - Se creará disputa`);
+                }
 
                 return {
                     battleTime: battleTime,
@@ -169,14 +216,16 @@ async function findMatchingBattle(tag1, tag2, startTime, lastCheckedBattleTime =
                     team: teamTag,
                     opponent: opponentTag,
                     teamCrowns,
-                    opponentCrowns
+                    opponentCrowns,
+                    battleType: battle.type
                 };
             }
         }
 
+        console.log(`   ℹ️ No se encontró partida entre ambos jugadores todavía`);
         return null;
     } catch (e) {
-        console.error("Error finding matching battle:", e.message);
+        console.error("❌ Error finding matching battle:", e.message);
         return null;
     }
 }
