@@ -654,10 +654,10 @@ document.addEventListener('DOMContentLoaded', () => {
         lastDatePainted[canal] = null;
         if (chatStorage[canal]) chatStorage[canal].forEach(msg => agregarBurbuja(msg, lista, canal));
         // Auto-scroll al final para mostrar mensajes más recientes
-        // Usamos setTimeout para asegurar que el DOM se haya actualizado
-        setTimeout(() => {
-            lista.scrollTop = lista.scrollHeight;
-        }, 50);
+        // Usamos múltiples timeouts para asegurar que el DOM se haya renderizado completamente
+        // incluso con imágenes u otro contenido que tarde en cargar
+        setTimeout(() => { lista.scrollTop = lista.scrollHeight; }, 50);
+        setTimeout(() => { lista.scrollTop = lista.scrollHeight; }, 300);
     }
     // --- FUNCIÓN PARA DETECTAR LINKS ---
     function convertirLinks(texto) {
