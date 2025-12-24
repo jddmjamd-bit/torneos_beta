@@ -100,12 +100,21 @@ const initDB = async () => {
             fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`);
 
+        await db.query(`CREATE TABLE IF NOT EXISTS user_tokens (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            fcm_token TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(user_id, fcm_token)
+        )`);
+
         console.log("👍 Tablas verificadas en Neon.");
 
     } catch (err) {
         console.error("❌ Error inicializando Neon:", err.message);
     }
 };
+
 
 initDB();
 
