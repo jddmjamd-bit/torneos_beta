@@ -208,6 +208,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (btn) { document.querySelectorAll('.channel').forEach(c => c.classList.remove('active')); btn.classList.add('active'); }
         if (window.innerWidth <= 768) { if (sidebar) sidebar.classList.remove('open'); if (mobileOverlay) mobileOverlay.classList.remove('open'); }
+
+        // Auto-scroll al final del chat cuando se muestra un canal
+        // Usamos setTimeout para dar tiempo al DOM de renderizar
+        setTimeout(() => {
+            // Mapeo de vista a canal de chat
+            const vistaACanalChat = {
+                'anuncios': 'anuncios',
+                'general': 'general',
+                'clash_chat': 'clash',
+                'clash_logs': 'clash_logs'
+            };
+            const canalChat = vistaACanalChat[vistaName];
+            if (canalChat && chatLists[canalChat]) {
+                chatLists[canalChat].scrollTop = chatLists[canalChat].scrollHeight;
+            }
+        }, 50);
     }
 
     // --- AUTH ---
@@ -654,10 +670,10 @@ document.addEventListener('DOMContentLoaded', () => {
         lastDatePainted[canal] = null;
         if (chatStorage[canal]) chatStorage[canal].forEach(msg => agregarBurbuja(msg, lista, canal));
         // Auto-scroll al final para mostrar mensajes más recientes
-        // Usamos múltiples timeouts para asegurar que el DOM se haya renderizado completamente
-        // incluso con imágenes u otro contenido que tarde en cargar
-        setTimeout(() => { lista.scrollTop = lista.scrollHeight; }, 50);
-        setTimeout(() => { lista.scrollTop = lista.scrollHeight; }, 300);
+        // Usamos setTimeout para asegurar que se ejecute después del renderizado DOM
+        setTimeout(() => {
+            lista.scrollTop = lista.scrollHeight;
+        }, 100);
     }
     // --- FUNCIÓN PARA DETECTAR LINKS ---
     function convertirLinks(texto) {
