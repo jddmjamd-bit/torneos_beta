@@ -372,10 +372,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const val = parseInt(autoInput.value);
 
             // Validación mínima
-            if (!val || val < 5000) {
+            if (!val || val < 1000) {
                 costBreakdown.classList.add('hidden');
                 btnAutoDeposit.disabled = true;
-                btnAutoDeposit.textContent = "Pagar con Wompi";
+                btnAutoDeposit.textContent = "Pagar con Tarjeta";
                 return;
             }
 
@@ -393,7 +393,7 @@ document.addEventListener('DOMContentLoaded', () => {
             costBreakdown.classList.remove('hidden');
 
             btnAutoDeposit.disabled = false;
-            btnAutoDeposit.textContent = `Pagar $${totalPagar.toLocaleString()} con Wompi (Simulado)`;
+            btnAutoDeposit.textContent = `Pagar $${totalPagar.toLocaleString()}`;
         });
     }
     if (btnManualDeposit) btnManualDeposit.addEventListener('click', async () => { const m = document.getElementById('manual-amount').value; const r = document.getElementById('manual-ref').value; if (!m || !r) return alert("Datos?"); const res = await fetch(API_BASE_URL + '/api/transaction/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: currentUser.id, username: currentUser.username, tipo: 'deposito', metodo: 'manual_nequi', monto: m, referencia: r }) }); const d = await res.json(); alert(d.message); depositModal.classList.add('hidden'); });
@@ -653,6 +653,8 @@ document.addEventListener('DOMContentLoaded', () => {
         lista.innerHTML = '';
         lastDatePainted[canal] = null;
         if (chatStorage[canal]) chatStorage[canal].forEach(msg => agregarBurbuja(msg, lista, canal));
+        // Auto-scroll al final para mostrar mensajes más recientes
+        lista.scrollTop = lista.scrollHeight;
     }
     // --- FUNCIÓN PARA DETECTAR LINKS ---
     function convertirLinks(texto) {
@@ -775,10 +777,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (statusText) statusText.textContent = '¡Resultado detectado!';
             if (resultDisplay) resultDisplay.style.display = 'block';
-            if (winnerText) winnerText.textContent = `🏆 ${data.ganador} ganó $${data.premio.toLocaleString()}`;
+
+            // Mensaje diferenciado según si ganó o perdió
+            if (data.esGanador) {
+                if (winnerText) {
+                    winnerText.textContent = `🏆 ¡GANASTE! +$${data.premio.toLocaleString()}`;
+                    winnerText.style.color = '#43b581';
+                }
+            } else {
+                if (winnerText) {
+                    winnerText.textContent = `💀 Perdiste. ${data.ganador} ganó.`;
+                    winnerText.style.color = '#ed4245';
+                }
+            }
             if (crownsText) crownsText.textContent = `Coronas: ${data.crowns}`;
 
-            alert(`🏆 RESULTADO: ${data.ganador} ganó $${data.premio.toLocaleString()}`);
+            // Mostrar alert con el mensaje
+            alert(data.mensaje);
+
+            // Si es perdedor, redirigir al chat general después de 3 segundos
+            if (!data.esGanador) {
+                setTimeout(() => {
+                    actualizarEstadoVisual('normal', true);
+                    ejecutarCambioVista('clash_chat', null);
+                }, 3000);
+            }
         });
 
         // Nuevo: Disputa por timeout
@@ -830,7 +853,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     // Game Interactions
-    if (btnBuscar) btnBuscar.addEventListener('click', () => { if (!currentUser) return; if (currentUser.saldo < 5000) { alert("Saldo insuficiente"); return; } if (currentUser.estado === 'normal') { actualizarEstadoVisual('buscando_partida'); socket.emit('buscar_partida', currentUser); } else if (currentUser.estado === 'buscando_partida') { actualizarEstadoVisual('normal'); socket.emit('cancelar_busqueda'); } });
+    if (btnBuscar) btnBuscar.addEventListener('click', () => { if (!currentUser) return; if (currentUser.saldo < 1000) { alert("Saldo insuficiente"); return; } if (currentUser.estado === 'normal') { actualizarEstadoVisual('buscando_partida'); socket.emit('buscar_partida', currentUser); } else if (currentUser.estado === 'buscando_partida') { actualizarEstadoVisual('normal'); socket.emit('cancelar_busqueda'); } });
     if (btnCancelMatch) btnCancelMatch.addEventListener('click', () => { if (confirm("¿Cancelar?")) socket.emit('cancelar_match', { motivo: 'Oprimió X' }); });
 
     function validarNegociacion() {
@@ -851,7 +874,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (modo.length < 3) { }
         else if (!valorRaw) { } // Si está vacío
         else if (isNaN(dinero)) { }
-        else if (dinero < 5000) { error = "Mínimo $5.000"; }
+        else if (dinero < 1000) { error = "Mínimo $1.000"; }
         else if (dinero > 25000) { error = "Máximo $25.000"; }
         else if (dinero > maxBetAllowed) { error = `Tope saldos: $${maxBetAllowed}`; }
 
@@ -861,7 +884,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 3. CÁLCULO DE GANANCIA (Aquí estaba el problema)
         if (elTexto) {
-            if (!isNaN(dinero) && dinero >= 5000) {
+            if (!isNaN(dinero) && dinero >= 1000) {
                 // Hacemos la matemática explícita
                 const totalMesa = dinero * 2;
                 const comision = totalMesa * 0.20;

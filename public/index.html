@@ -48,18 +48,18 @@
             </header>
             <div class="deposit-tabs">
                 <button class="tab-btn active" onclick="switchDepositTab('manual')">📱 Nequi</button>
-                <button class="tab-btn" onclick="switchDepositTab('auto')">⚡ Wompi</button>
+                <button class="tab-btn" onclick="switchDepositTab('auto')">💳 Débito/Crédito</button>
             </div>
             <div id="tab-manual" class="deposit-section">
                 <p class="info-text">Envía a Nequi 3126655995.<br>Espera aprobación.</p>
-                <input type="number" id="manual-amount" placeholder="Monto" min="5000">
+                <input type="number" id="manual-amount" placeholder="Monto" min="1000">
                 <input type="text" id="manual-ref" placeholder="Referencia">
                 <button id="btn-manual-deposit" class="deposit-action-btn">Enviar</button>
             </div>
             <div id="tab-auto" class="deposit-section hidden">
                 <p class="info-text">Recarga inmediata.</p>
                 <div class="calc-box">
-                    <label>Recibir:</label><input type="number" id="auto-amount-input" placeholder="10000" min="5000">
+                    <label>Recibir:</label><input type="number" id="auto-amount-input" placeholder="10000" min="1000">
                     <div class="cost-breakdown hidden" id="cost-breakdown">
                         <div class="cost-row"><span>Comisión:</span><span id="fee-display"
                                 style="color:#ed4245;">+0</span></div>
@@ -265,7 +265,7 @@
                             <div class="input-group"><label>Modo:</label><input type="text" id="input-game-mode"
                                     placeholder="Ej: Elección"></div>
                             <div class="input-group"><label>Apuesta:</label><input type="number" id="input-bet-amount"
-                                    placeholder="Mín: 5000"></div>
+                                    placeholder="Mín: 1000"></div>
                         </div>
                         <!-- Texto Ganancia -->
                         <p id="win-text" style="font-size: 0.9rem; font-weight: bold; margin-top: 5px; color: #bbb;">

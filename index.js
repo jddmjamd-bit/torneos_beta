@@ -680,7 +680,7 @@ io.on('connection', (socket) => {
     socket.on('buscar_partida', async (usuario) => {
         const uRes = await db.query(`SELECT * FROM users WHERE id = $1`, [usuario.id]);
         const row = uRes.rows[0];
-        if (!row || parseFloat(row.saldo) < 5000) return socket.emit('error_busqueda', 'Saldo insuficiente');
+        if (!row || parseFloat(row.saldo) < 1000) return socket.emit('error_busqueda', 'Saldo insuficiente');
 
         socket.userData = row;
         if (colaEsperaClash.find(s => s.id === socket.id)) return;
@@ -854,12 +854,19 @@ io.on('connection', (socket) => {
                             await db.query(`UPDATE matches SET estado = 'finalizada', ganador = $1 WHERE id = $2`, [winnerName, match.dbId]);
                             logClash(`🏆 GANADOR API #${match.dbId}: ${winnerName}`);
 
-                            // Notificar a ambos jugadores y liberar
-                            io.to(salaId).emit('resultado_api', {
-                                ganador: winnerName,
-                                premio: premio,
-                                crowns: `${battleResult.teamCrowns}-${battleResult.opponentCrowns}`
-                            });
+                            // Notificar a cada jugador individualmente
+                            for (const p of match.players) {
+                                const esGanador = p.userData.id === idGanador;
+                                p.emit('resultado_api', {
+                                    ganador: winnerName,
+                                    premio: premio,
+                                    crowns: `${battleResult.teamCrowns}-${battleResult.opponentCrowns}`,
+                                    esGanador: esGanador,
+                                    mensaje: esGanador
+                                        ? `🏆 ¡GANASTE! Recibiste $${premio.toLocaleString()}`
+                                        : `💀 Perdiste. ${winnerName} ganó la partida.`
+                                });
+                            }
 
                             for (const p of match.players) {
                                 await db.query(`UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id = $1`, [p.userData.id]);
