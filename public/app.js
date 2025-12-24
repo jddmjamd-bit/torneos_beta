@@ -55,6 +55,85 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             console.log("⚠️ Plugin Camera no disponible");
         }
+
+        // --- PUSH NOTIFICATIONS ---
+        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications) {
+            const PushNotifications = window.Capacitor.Plugins.PushNotifications;
+
+            // Verificar permisos
+            PushNotifications.checkPermissions().then(status => {
+                console.log("🔔 Estado permisos push:", status);
+                if (status.receive !== 'granted') {
+                    PushNotifications.requestPermissions().then(result => {
+                        console.log("🔔 Permisos push solicitados:", result);
+                        if (result.receive === 'granted') {
+                            PushNotifications.register();
+                        }
+                    });
+                } else {
+                    PushNotifications.register();
+                }
+            });
+
+            // Cuando se registra exitosamente, guardar token
+            PushNotifications.addListener('registration', async (token) => {
+                console.log("🔔 Token FCM recibido:", token.value);
+                window.fcmToken = token.value;
+
+                // Si ya tenemos usuario logueado, registrar token
+                if (sessionUserId) {
+                    try {
+                        await fetch(API_BASE_URL + '/api/register-token', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ userId: sessionUserId, token: token.value })
+                        });
+                        console.log("🔔 Token registrado en servidor");
+                    } catch (e) {
+                        console.error("Error registrando token:", e);
+                    }
+                }
+            });
+
+            // Error de registro
+            PushNotifications.addListener('registrationError', (error) => {
+                console.error("🔔 Error registrando push:", error);
+            });
+
+            // Notificación recibida (app en foreground)
+            PushNotifications.addListener('pushNotificationReceived', (notification) => {
+                console.log("🔔 Push recibida:", notification);
+                // Mostrar notificación local si la app está abierta
+                if (notification.data && notification.data.action === 'remove_notification') {
+                    // Ignorar notificaciones de eliminación en foreground
+                    return;
+                }
+            });
+
+            // Usuario tocó la notificación
+            PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
+                console.log("🔔 Push tocada:", notification);
+                const data = notification.notification.data;
+
+                // Navegar según el tipo de notificación
+                if (data) {
+                    if (data.tipo === 'match_found') {
+                        // Ir al chat privado si hay partida encontrada
+                        if (typeof ejecutarCambioVista === 'function') {
+                            ejecutarCambioVista('private', null);
+                        }
+                    } else if (data.tipo === 'chat') {
+                        // Ir al canal correspondiente
+                        if (typeof ejecutarCambioVista === 'function') {
+                            const vista = data.canal === 'general' ? 'general' : 'clash_chat';
+                            ejecutarCambioVista(vista, null);
+                        }
+                    }
+                }
+            });
+        } else {
+            console.log("⚠️ Plugin PushNotifications no disponible");
+        }
     } else {
         // En web, pedir permiso de micrófono via API web
         navigator.mediaDevices.getUserMedia({ audio: true })
@@ -257,6 +336,16 @@ document.addEventListener('DOMContentLoaded', () => {
         sessionUserId = user.id; // Set sessionUserId when entering lobby
         // --- REGISTRAR SOCKET: Siempre emitir (Socket.IO encola si no está conectado) ---
         if (socket) socket.emit('registrar_socket', user);
+
+        // --- REGISTRAR TOKEN FCM SI EXISTE ---
+        if (window.fcmToken && user.id) {
+            fetch(API_BASE_URL + '/api/register-token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user.id, token: window.fcmToken })
+            }).then(() => console.log("🔔 Token FCM registrado al login"))
+                .catch(e => console.error("Error registrando token:", e));
+        }
 
         // Recuperamos el ID de la sala si venimos de un recarga
         if (user.sala_actual) {

@@ -53,6 +53,110 @@ app.use(express.json({ limit: '200mb' }));
 app.use(express.static('public'));
 app.use(cookieParser('secreto_super_seguro'));
 
+// --- FIREBASE ADMIN SDK (Push Notifications) ---
+const admin = require('firebase-admin');
+let firebaseInitialized = false;
+
+try {
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+        admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount)
+        });
+        firebaseInitialized = true;
+        console.log("🔥 Firebase Admin inicializado correctamente");
+    } else {
+        console.log("⚠️ FIREBASE_SERVICE_ACCOUNT no configurado - Push notifications deshabilitadas");
+    }
+} catch (e) {
+    console.error("❌ Error inicializando Firebase:", e.message);
+}
+
+// Función para enviar notificación push a un usuario
+async function enviarNotificacionPush(userId, titulo, cuerpo, datos = {}, notificationId = null) {
+    if (!firebaseInitialized) return;
+
+    try {
+        const tokenRes = await db.query(`SELECT fcm_token FROM user_tokens WHERE user_id = $1`, [userId]);
+        if (tokenRes.rows.length === 0) return;
+
+        for (const row of tokenRes.rows) {
+            const message = {
+                token: row.fcm_token,
+                notification: {
+                    title: titulo,
+                    body: cuerpo
+                },
+                data: {
+                    ...datos,
+                    notificationId: notificationId || `notif_${Date.now()}`
+                },
+                android: {
+                    priority: 'high',
+                    notification: {
+                        sound: 'default',
+                        channelId: 'torneos_flash_channel',
+                        priority: 'max',
+                        defaultSound: true,
+                        defaultVibrateTimings: true
+                    }
+                }
+            };
+
+            await admin.messaging().send(message);
+            console.log(`📱 Notificación enviada a usuario ${userId}`);
+        }
+    } catch (e) {
+        // Token inválido - eliminar de la BD
+        if (e.code === 'messaging/registration-token-not-registered') {
+            await db.query(`DELETE FROM user_tokens WHERE user_id = $1`, [userId]);
+            console.log(`🗑️ Token inválido eliminado para usuario ${userId}`);
+        } else {
+            console.error("Error enviando push:", e.message);
+        }
+    }
+}
+
+// Función para enviar notificación a múltiples usuarios (excepto uno)
+async function enviarNotificacionATodos(exceptUserId, titulo, cuerpo, datos = {}, notificationId = null) {
+    if (!firebaseInitialized) return;
+
+    try {
+        const usersRes = await db.query(`SELECT DISTINCT user_id FROM user_tokens WHERE user_id != $1`, [exceptUserId || 0]);
+        for (const row of usersRes.rows) {
+            await enviarNotificacionPush(row.user_id, titulo, cuerpo, datos, notificationId);
+        }
+    } catch (e) {
+        console.error("Error enviando push a todos:", e.message);
+    }
+}
+
+// Función para eliminar una notificación (cuando alguien cancela búsqueda)
+async function eliminarNotificacion(notificationId) {
+    // Nota: FCM no permite eliminar notificaciones directamente
+    // Pero podemos enviar una notificación silenciosa con data para que la app la elimine
+    if (!firebaseInitialized) return;
+
+    try {
+        const allTokens = await db.query(`SELECT DISTINCT fcm_token FROM user_tokens`);
+        for (const row of allTokens.rows) {
+            const message = {
+                token: row.fcm_token,
+                data: {
+                    action: 'remove_notification',
+                    notificationId: notificationId
+                },
+                android: {
+                    priority: 'high'
+                }
+            };
+            await admin.messaging().send(message).catch(() => { });
+        }
+    } catch (e) {
+        console.error("Error eliminando notificación:", e.message);
+    }
+}
+
 let colaEsperaClash = [];
 let activeMatches = {};
 
@@ -399,6 +503,27 @@ app.post('/api/logout', (req, res) => {
     res.json({ message: 'Bye' });
 });
 
+// --- PUSH NOTIFICATIONS TOKEN ---
+app.post('/api/register-token', async (req, res) => {
+    try {
+        const { userId, token } = req.body;
+        if (!userId || !token) return res.status(400).json({ error: 'Datos incompletos' });
+
+        // Insertar o ignorar si ya existe
+        await db.query(`
+            INSERT INTO user_tokens (user_id, fcm_token) 
+            VALUES ($1, $2) 
+            ON CONFLICT (user_id, fcm_token) DO NOTHING
+        `, [userId, token]);
+
+        console.log(`📱 Token FCM registrado para usuario ${userId}`);
+        res.json({ success: true });
+    } catch (e) {
+        console.error("Error registrando token:", e);
+        res.status(500).json({ error: 'Error registrando token' });
+    }
+});
+
 // --- FINANZAS ---
 app.post('/api/deposit', async (req, res) => {
     try {
@@ -517,8 +642,16 @@ app.post('/api/admin/transaction/process', async (req, res) => {
                 await db.query(`UPDATE users SET saldo = saldo + $1 WHERE id = $2`, [trans.monto, trans.usuario_id]);
                 const u = await db.query(`SELECT saldo FROM users WHERE id = $1`, [trans.usuario_id]);
                 notificar(trans.usuario_id, "❌ Retiro rechazado. Saldo devuelto.", parseFloat(u.rows[0].saldo));
+                // Push notification
+                enviarNotificacionPush(trans.usuario_id, '❌ Retiro Rechazado',
+                    `Tu solicitud de retiro de $${trans.monto.toLocaleString()} fue rechazada. Saldo devuelto.`,
+                    { tipo: 'transaccion', accion: 'rechazado' });
             } else {
                 notificar(trans.usuario_id, "❌ Recarga rechazada.");
+                // Push notification
+                enviarNotificacionPush(trans.usuario_id, '❌ Recarga Rechazada',
+                    `Tu solicitud de recarga de $${trans.monto.toLocaleString()} fue rechazada.`,
+                    { tipo: 'transaccion', accion: 'rechazado' });
             }
             await db.query(`UPDATE transactions SET estado = 'rechazado' WHERE id = $1`, [transId]);
             res.json({ success: true, message: 'Rechazada' });
@@ -530,6 +663,10 @@ app.post('/api/admin/transaction/process', async (req, res) => {
                 await db.query(`UPDATE users SET saldo = saldo + $1 WHERE id = $2`, [trans.monto, trans.usuario_id]);
                 const u = await db.query(`SELECT saldo FROM users WHERE id = $1`, [trans.usuario_id]);
                 notificar(trans.usuario_id, `✅ Recarga aprobada.`, parseFloat(u.rows[0].saldo));
+                // Push notification
+                enviarNotificacionPush(trans.usuario_id, '✅ Recarga Aprobada',
+                    `Tu recarga de $${trans.monto.toLocaleString()} fue aprobada. ¡Ya puedes jugar!`,
+                    { tipo: 'transaccion', accion: 'aprobado' });
             } else {
                 // Retiro (El dinero ya se descontó al pedirlo)
                 // CORRECCIÓN: Buscamos el saldo actual para confirmar que se ve bien en pantalla
@@ -537,6 +674,10 @@ app.post('/api/admin/transaction/process', async (req, res) => {
 
                 // Enviamos el saldo actual (que ya tiene el descuento) para que la UI se refresque y no salga null
                 notificar(trans.usuario_id, "✅ Tu retiro ha sido enviado.", parseFloat(u.rows[0].saldo));
+                // Push notification
+                enviarNotificacionPush(trans.usuario_id, '✅ Retiro Enviado',
+                    `Tu retiro de $${trans.monto.toLocaleString()} ha sido procesado.`,
+                    { tipo: 'transaccion', accion: 'aprobado' });
             }
 
             await db.query(`UPDATE transactions SET estado = 'completado' WHERE id = $1`, [transId]);
@@ -674,6 +815,19 @@ io.on('connection', (socket) => {
         await db.query(`INSERT INTO messages (canal, usuario, texto, tipo, fecha) VALUES ($1, $2, $3, $4, $5)`,
             [data.canal, data.usuario, data.texto, data.tipo || 'texto', fecha]);
         io.emit('mensaje_chat', { ...data, fecha });
+
+        // Notificación push para chat general y clash (no para anuncios ni logs)
+        if (data.canal === 'general' || data.canal === 'clash') {
+            const userRes = await db.query(`SELECT id FROM users WHERE username = $1`, [data.usuario]);
+            const senderId = userRes.rows[0]?.id;
+            const canalNombre = data.canal === 'general' ? 'Chat General' : 'Clash Royale';
+            const textoPreview = data.tipo === 'texto' ? data.texto.substring(0, 50) : '📷 Envió un archivo';
+
+            enviarNotificacionATodos(senderId, `💬 ${data.usuario} en ${canalNombre}`, textoPreview, {
+                tipo: 'chat',
+                canal: data.canal
+            });
+        }
     });
 
     // BUSCAR
@@ -687,6 +841,15 @@ io.on('connection', (socket) => {
 
         colaEsperaClash.push(socket);
         await db.query(`UPDATE users SET estado = 'buscando_partida' WHERE id = $1`, [usuario.id]);
+
+        // Notificar a todos que alguien busca partida
+        const notifId = `busqueda_${usuario.id}_${Date.now()}`;
+        socket.busquedaNotifId = notifId; // Guardar para poder eliminar si cancela
+        enviarNotificacionATodos(usuario.id, '🔍 Alguien busca partida', `${row.username} está buscando rival en Clash Royale`, {
+            tipo: 'busqueda',
+            userId: usuario.id.toString()
+        }, notifId);
+
         if (colaEsperaClash.length === 1) logClash(`🔍 ${row.username} busca...`);
 
         if (colaEsperaClash.length >= 2) {
@@ -704,6 +867,14 @@ io.on('connection', (socket) => {
 
             logClash(`⚔️ MATCH: ${j1.userData.username} vs ${j2.userData.username}`);
             io.to(salaId).emit('partida_encontrada', { salaId, p1: j1.userData, p2: j2.userData, maxApuesta: maxAp });
+
+            // Notificaciones push de rival encontrado (alta prioridad con sonido)
+            enviarNotificacionPush(j1.userData.id, '⚔️ ¡RIVAL ENCONTRADO!',
+                `Tu rival es ${j2.userData.username}. ¡Entra ahora!`,
+                { tipo: 'match_found', salaId, rivalId: j2.userData.id.toString() });
+            enviarNotificacionPush(j2.userData.id, '⚔️ ¡RIVAL ENCONTRADO!',
+                `Tu rival es ${j1.userData.username}. ¡Entra ahora!`,
+                { tipo: 'match_found', salaId, rivalId: j1.userData.id.toString() });
         }
     });
 
@@ -712,6 +883,11 @@ io.on('connection', (socket) => {
         if (socket.userData) {
             await db.query(`UPDATE users SET estado = 'normal' WHERE id = $1`, [socket.userData.id]);
             logClash(`🚫 ${socket.userData.username} canceló.`);
+
+            // Eliminar notificación de búsqueda
+            if (socket.busquedaNotifId) {
+                eliminarNotificacion(socket.busquedaNotifId);
+            }
         }
     });
 
@@ -865,6 +1041,17 @@ io.on('connection', (socket) => {
                                     mensaje: esGanador
                                         ? `🏆 ¡GANASTE! Recibiste $${premio.toLocaleString()}`
                                         : `💀 Perdiste. ${winnerName} ganó la partida.`
+                                });
+
+                                // Push notification de resultado
+                                const pushTitulo = esGanador ? '🏆 ¡GANASTE!' : '💀 Partida Terminada';
+                                const pushCuerpo = esGanador
+                                    ? `¡Felicidades! Ganaste $${premio.toLocaleString()}`
+                                    : `${winnerName} ganó la partida. ¡Inténtalo de nuevo!`;
+                                enviarNotificacionPush(p.userData.id, pushTitulo, pushCuerpo, {
+                                    tipo: 'resultado',
+                                    esGanador: esGanador.toString(),
+                                    premio: premio.toString()
                                 });
                             }
 
