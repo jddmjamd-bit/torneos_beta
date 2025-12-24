@@ -811,16 +811,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (crownsText) crownsText.textContent = `Coronas: ${data.crowns}`;
 
-            // Mostrar alert con el mensaje
+            // Mostrar alert con el mensaje - el usuario debe presionar OK para continuar
             alert(data.mensaje);
 
-            // Si es perdedor, redirigir al chat general después de 3 segundos
-            if (!data.esGanador) {
-                setTimeout(() => {
-                    actualizarEstadoVisual('normal', true);
-                    ejecutarCambioVista('clash_chat', null);
-                }, 3000);
-            }
+            // Después de que el usuario presione OK, redirigir al chat
+            // Tanto ganador como perdedor van al chat de Clash
+            actualizarEstadoVisual('normal', true);
+            ejecutarCambioVista('clash_chat', null);
         });
 
         // Nuevo: Disputa por timeout
