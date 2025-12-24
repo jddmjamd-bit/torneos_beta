@@ -654,7 +654,10 @@ document.addEventListener('DOMContentLoaded', () => {
         lastDatePainted[canal] = null;
         if (chatStorage[canal]) chatStorage[canal].forEach(msg => agregarBurbuja(msg, lista, canal));
         // Auto-scroll al final para mostrar mensajes más recientes
-        lista.scrollTop = lista.scrollHeight;
+        // Usamos setTimeout para asegurar que el DOM se haya actualizado
+        setTimeout(() => {
+            lista.scrollTop = lista.scrollHeight;
+        }, 50);
     }
     // --- FUNCIÓN PARA DETECTAR LINKS ---
     function convertirLinks(texto) {
