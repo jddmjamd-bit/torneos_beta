@@ -80,6 +80,8 @@ async function enviarNotificacionPush(userId, titulo, cuerpo, datos = {}, notifi
         const tokenRes = await db.query(`SELECT fcm_token FROM user_tokens WHERE user_id = $1`, [userId]);
         if (tokenRes.rows.length === 0) return;
 
+        const notifId = notificationId || `notif_${Date.now()}`;
+
         for (const row of tokenRes.rows) {
             const message = {
                 token: row.fcm_token,
@@ -89,22 +91,27 @@ async function enviarNotificacionPush(userId, titulo, cuerpo, datos = {}, notifi
                 },
                 data: {
                     ...datos,
-                    notificationId: notificationId || `notif_${Date.now()}`
+                    notificationId: notifId,
+                    click_action: 'FLUTTER_NOTIFICATION_CLICK'
                 },
                 android: {
                     priority: 'high',
+                    ttl: 86400000, // 24 horas
                     notification: {
                         sound: 'default',
-                        channelId: 'torneos_flash_channel',
+                        channelId: 'torneos_high_priority',
                         priority: 'max',
+                        visibility: 'public',
                         defaultSound: true,
-                        defaultVibrateTimings: true
+                        defaultVibrateTimings: true,
+                        notificationCount: 1,
+                        tag: notifId // Para poder eliminar después
                     }
                 }
             };
 
             await admin.messaging().send(message);
-            console.log(`📱 Notificación enviada a usuario ${userId}`);
+            console.log(`📱 Notificación enviada a usuario ${userId} (tag: ${notifId})`);
         }
     } catch (e) {
         // Token inválido - eliminar de la BD

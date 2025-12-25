@@ -59,6 +59,22 @@ document.addEventListener('DOMContentLoaded', () => {
         // --- PUSH NOTIFICATIONS ---
         if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications) {
             const PushNotifications = window.Capacitor.Plugins.PushNotifications;
+            const LocalNotifications = window.Capacitor.Plugins.LocalNotifications;
+
+            // Crear canal de notificaciones de alta prioridad (Android)
+            if (LocalNotifications && LocalNotifications.createChannel) {
+                LocalNotifications.createChannel({
+                    id: 'torneos_high_priority',
+                    name: 'Torneos Flash',
+                    description: 'Notificaciones de partidas y mensajes',
+                    importance: 5, // IMPORTANCE_HIGH - muestra heads-up
+                    visibility: 1, // VISIBILITY_PUBLIC
+                    sound: 'default',
+                    vibration: true,
+                    lights: true
+                }).then(() => console.log("🔔 Canal de notificaciones creado"))
+                    .catch(e => console.log("🔔 Error creando canal:", e));
+            }
 
             // Verificar permisos
             PushNotifications.checkPermissions().then(status => {
@@ -100,13 +116,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error("🔔 Error registrando push:", error);
             });
 
-            // Notificación recibida (app en foreground)
+            // Notificación recibida (app en foreground) - NO mostrar si la app está abierta
             PushNotifications.addListener('pushNotificationReceived', (notification) => {
-                console.log("🔔 Push recibida:", notification);
-                // Mostrar notificación local si la app está abierta
-                if (notification.data && notification.data.action === 'remove_notification') {
-                    // Ignorar notificaciones de eliminación en foreground
-                    return;
+                console.log("🔔 Push recibida en foreground (ignorando):", notification.title);
+                // Las notificaciones se ignoran cuando la app está abierta
+                // porque el usuario ya está viendo la app
+
+                // Manejar eliminación de notificación
+                if (notification.data && notification.data.action === 'remove_notification' && LocalNotifications) {
+                    const notifId = notification.data.notificationId;
+                    if (notifId) {
+                        // Intentar eliminar notificación local
+                        LocalNotifications.cancel({ notifications: [{ id: parseInt(notifId) || 0 }] })
+                            .catch(() => { }); // Ignorar errores
+                    }
                 }
             });
 
