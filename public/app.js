@@ -116,6 +116,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error("🔔 Error registrando push:", error);
             });
 
+            // Limpiar notificaciones cuando la app está en foreground
+            PushNotifications.removeAllDeliveredNotifications()
+                .then(() => console.log("🔔 Notificaciones limpiadas al iniciar"))
+                .catch(() => { });
+
+            // Limpiar notificaciones cuando la app vuelve a foreground
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden) {
+                    PushNotifications.removeAllDeliveredNotifications()
+                        .then(() => console.log("🔔 Notificaciones limpiadas al volver a foreground"))
+                        .catch(() => { });
+                }
+            });
+
             // Push recibida (cuando la app está abierta)
             // El servidor ya no envía push si el usuario está online,
             // así que esto solo se dispara si hubo lag en la conexión
@@ -136,6 +150,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     const vista = data.canal === 'general' ? 'general' : 'clash_chat';
                     ejecutarCambioVista(vista, null);
                 }
+
+                // Limpiar todas las notificaciones después de tocar una
+                PushNotifications.removeAllDeliveredNotifications().catch(() => { });
             });
         } else {
             console.log("⚠️ Plugin PushNotifications no disponible");
