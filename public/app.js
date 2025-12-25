@@ -174,6 +174,45 @@ document.addEventListener('DOMContentLoaded', () => {
         socket = isNativeApp
             ? io(API_BASE_URL, { transports: ['websocket', 'polling'], withCredentials: true })
             : io();
+
+        // --- TOAST NOTIFICATION IN-APP ---
+        function mostrarToast(mensaje, duracion = 4000) {
+            // Crear o reusar contenedor de toasts
+            let container = document.getElementById('toast-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'toast-container';
+                container.style.cssText = 'position:fixed;top:70px;right:10px;z-index:9999;display:flex;flex-direction:column;gap:8px;';
+                document.body.appendChild(container);
+            }
+
+            const toast = document.createElement('div');
+            toast.style.cssText = 'background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;padding:12px 20px;border-radius:10px;box-shadow:0 4px 15px rgba(0,0,0,0.3);font-size:14px;animation:slideIn 0.3s ease;max-width:280px;';
+            toast.innerHTML = mensaje;
+            container.appendChild(toast);
+
+            // Agregar animación si no existe
+            if (!document.getElementById('toast-styles')) {
+                const style = document.createElement('style');
+                style.id = 'toast-styles';
+                style.textContent = '@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes slideOut{from{transform:translateX(0);opacity:1}to{transform:translateX(100%);opacity:0}}';
+                document.head.appendChild(style);
+            }
+
+            setTimeout(() => {
+                toast.style.animation = 'slideOut 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, duracion);
+        }
+
+        // Listener: Alguien está buscando partida
+        socket.on('alguien_buscando', (data) => {
+            // No mostrar si soy yo quien busca
+            if (currentUser && data.oderId === currentUser.id) return;
+
+            mostrarToast(`🔍 <strong>${data.username}</strong> está buscando partida!`);
+        });
+
     } catch (e) { console.error(e); }
 
     // --- FIX MAESTRO: AUTO-RECARGA POR SUSPENSIÓN ---

@@ -867,6 +867,9 @@ io.on('connection', (socket) => {
             userId: usuario.id.toString()
         }, notifId);
 
+        // Notificar a todos los usuarios ONLINE (in-app toast)
+        io.emit('alguien_buscando', { username: row.username, oderId: usuario.id });
+
         if (colaEsperaClash.length === 1) logClash(`🔍 ${row.username} busca...`);
 
         if (colaEsperaClash.length >= 2) {
