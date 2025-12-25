@@ -176,7 +176,7 @@ document.addEventListener('DOMContentLoaded', () => {
             : io();
 
         // --- TOAST NOTIFICATION IN-APP ---
-        function mostrarToast(mensaje, duracion = 4000) {
+        function mostrarToast(mensaje, duracion = 10000) {
             // Crear o reusar contenedor de toasts
             let container = document.getElementById('toast-container');
             if (!container) {
@@ -203,14 +203,31 @@ document.addEventListener('DOMContentLoaded', () => {
                 toast.style.animation = 'slideOut 0.3s ease';
                 setTimeout(() => toast.remove(), 300);
             }, duracion);
+
+            return toast; // Retornar referencia al toast
         }
+
+        // Almacenar toasts de búsqueda por userId para poder eliminarlos
+        const toastsBusqueda = {};
 
         // Listener: Alguien está buscando partida
         socket.on('alguien_buscando', (data) => {
             // No mostrar si soy yo quien busca
             if (currentUser && data.oderId === currentUser.id) return;
 
-            mostrarToast(`🔍 <strong>${data.username}</strong> está buscando partida!`);
+            const toast = mostrarToast(`🔍 <strong>${data.username}</strong> está buscando partida!`);
+            toastsBusqueda[data.oderId] = toast;
+        });
+
+        // Listener: Alguien canceló la búsqueda - quitar su toast
+        socket.on('busqueda_cancelada', (data) => {
+            // Eliminar el toast de búsqueda de este usuario si existe
+            if (toastsBusqueda[data.oderId]) {
+                const toast = toastsBusqueda[data.oderId];
+                toast.style.animation = 'slideOut 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+                delete toastsBusqueda[data.oderId];
+            }
         });
 
     } catch (e) { console.error(e); }

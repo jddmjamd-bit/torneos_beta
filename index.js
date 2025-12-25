@@ -904,10 +904,13 @@ io.on('connection', (socket) => {
             await db.query(`UPDATE users SET estado = 'normal' WHERE id = $1`, [socket.userData.id]);
             logClash(`🚫 ${socket.userData.username} canceló.`);
 
-            // Eliminar notificación de búsqueda
+            // Eliminar notificación push de búsqueda
             if (socket.busquedaNotifId) {
                 eliminarNotificacion(socket.busquedaNotifId);
             }
+
+            // Notificar a todos para que quiten el toast in-app
+            io.emit('busqueda_cancelada', { oderId: socket.userData.id, username: socket.userData.username });
         }
     });
 
