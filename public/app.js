@@ -116,103 +116,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error("🔔 Error registrando push:", error);
             });
 
-            // Variable para trackear si la app está en foreground
-            let appIsInForeground = true;
-
-            // Cuando la app pasa a background
-            document.addEventListener('visibilitychange', () => {
-                appIsInForeground = !document.hidden;
-                console.log("🔔 App foreground:", appIsInForeground);
-
-                // Limpiar todas las notificaciones cuando la app vuelve a foreground
-                if (appIsInForeground && LocalNotifications) {
-                    LocalNotifications.removeAllDeliveredNotifications()
-                        .then(() => console.log("🔔 Notificaciones limpiadas"))
-                        .catch(() => { });
-                }
-            });
-
-            // ID para notificaciones locales (necesita ser numérico)
-            let localNotifCounter = Date.now() % 100000;
-
-            // Data message recibido - decidir si mostrar notificación local
+            // Push recibida (cuando la app está abierta)
+            // El servidor ya no envía push si el usuario está online,
+            // así que esto solo se dispara si hubo lag en la conexión
             PushNotifications.addListener('pushNotificationReceived', (notification) => {
-                const data = notification.data || notification;
-                console.log("🔔 Data push recibida:", data);
-
-                // Manejar eliminación de notificación
-                if (data.action === 'remove_notification' && LocalNotifications) {
-                    console.log("🔔 Eliminando notificación:", data.notificationId);
-                    LocalNotifications.removeAllDeliveredNotifications().catch(() => { });
-                    return;
-                }
-
-                // Si la app está en foreground, NO mostrar notificación
-                if (appIsInForeground) {
-                    console.log("🔔 App en foreground - notificación ignorada");
-                    return;
-                }
-
-                // App en background - mostrar notificación local
-                if (LocalNotifications && data.title) {
-                    localNotifCounter++;
-                    LocalNotifications.schedule({
-                        notifications: [{
-                            id: localNotifCounter,
-                            title: data.title,
-                            body: data.body || '',
-                            sound: 'default',
-                            channelId: 'torneos_high_priority',
-                            extra: data
-                        }]
-                    }).then(() => console.log("🔔 Notificación local mostrada"))
-                        .catch(e => console.log("🔔 Error mostrando local:", e));
-                }
+                console.log("🔔 Push recibida en app abierta:", notification);
+                // No hacemos nada - el servidor debería haber evitado enviar
             });
 
-            // Usuario tocó la notificación
+            // Usuario tocó la notificación (desde el sistema)
             PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
                 console.log("🔔 Push tocada:", notification);
-                const data = notification.notification?.data || notification.notification?.extra || {};
+                const data = notification.notification?.data || {};
 
                 // Navegar según el tipo de notificación
                 if (data.tipo === 'match_found') {
-                    if (typeof ejecutarCambioVista === 'function') {
-                        ejecutarCambioVista('private', null);
-                    }
+                    ejecutarCambioVista('private', null);
                 } else if (data.tipo === 'chat') {
-                    if (typeof ejecutarCambioVista === 'function') {
-                        const vista = data.canal === 'general' ? 'general' : 'clash_chat';
-                        ejecutarCambioVista(vista, null);
-                    }
-                }
-
-                // Limpiar todas las notificaciones después de tocar una
-                if (LocalNotifications) {
-                    LocalNotifications.removeAllDeliveredNotifications().catch(() => { });
+                    const vista = data.canal === 'general' ? 'general' : 'clash_chat';
+                    ejecutarCambioVista(vista, null);
                 }
             });
-
-            // Limpiar notificaciones también cuando se toca notificación local
-            if (LocalNotifications) {
-                LocalNotifications.addListener('localNotificationActionPerformed', (notification) => {
-                    console.log("🔔 Notificación local tocada:", notification);
-                    const data = notification.notification?.extra || {};
-
-                    if (data.tipo === 'match_found') {
-                        if (typeof ejecutarCambioVista === 'function') {
-                            ejecutarCambioVista('private', null);
-                        }
-                    } else if (data.tipo === 'chat') {
-                        if (typeof ejecutarCambioVista === 'function') {
-                            const vista = data.canal === 'general' ? 'general' : 'clash_chat';
-                            ejecutarCambioVista(vista, null);
-                        }
-                    }
-
-                    LocalNotifications.removeAllDeliveredNotifications().catch(() => { });
-                });
-            }
         } else {
             console.log("⚠️ Plugin PushNotifications no disponible");
         }

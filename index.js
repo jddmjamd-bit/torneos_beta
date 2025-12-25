@@ -73,9 +73,15 @@ try {
 }
 
 // Función para enviar notificación push a un usuario
-// Usa notification+data para que Android muestre la notificación cuando la app está cerrada
+// Solo envía si el usuario NO está online (conectado por socket)
 async function enviarNotificacionPush(userId, titulo, cuerpo, datos = {}, notificationId = null) {
     if (!firebaseInitialized) return;
+
+    // NO enviar push si el usuario está online en la app
+    if (usuariosOnline.has(userId)) {
+        console.log(`📱 Usuario ${userId} está online - push omitida`);
+        return;
+    }
 
     try {
         const tokenRes = await db.query(`SELECT fcm_token FROM user_tokens WHERE user_id = $1`, [userId]);
@@ -165,6 +171,8 @@ async function eliminarNotificacion(notificationId) {
 
 let colaEsperaClash = [];
 let activeMatches = {};
+// Set de usuarios online (conectados por socket) - no enviar push a estos
+let usuariosOnline = new Set();
 
 // --- REPORTERO ---
 async function logClash(texto) {
@@ -776,6 +784,9 @@ io.on('connection', (socket) => {
         );
 
         socket.userData = user;
+        // Marcar usuario como online para no enviarle push notifications
+        usuariosOnline.add(user.id);
+        console.log(`✅ Usuario ${user.username} (${user.id}) está ONLINE - no recibirá push`);
         // Recuperar sala si existe
         if (user.sala_actual && activeMatches[user.sala_actual]) {
             const salaId = user.sala_actual;
@@ -1168,6 +1179,12 @@ io.on('connection', (socket) => {
 
         const salaId = socket.currentRoom;
         const userData = socket.userData;
+
+        // Marcar usuario como offline para que reciba push notifications
+        if (userData && userData.id) {
+            usuariosOnline.delete(userData.id);
+            console.log(`❌ Usuario ${userData.username} (${userData.id}) está OFFLINE - recibirá push`);
+        }
 
         if (salaId && activeMatches[salaId] && userData) {
             const match = activeMatches[salaId];
