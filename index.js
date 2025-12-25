@@ -73,7 +73,7 @@ try {
 }
 
 // Función para enviar notificación push a un usuario
-// Usa data-only message para que el cliente decida si mostrar la notificación
+// Usa notification+data para que Android muestre la notificación cuando la app está cerrada
 async function enviarNotificacionPush(userId, titulo, cuerpo, datos = {}, notificationId = null) {
     if (!firebaseInitialized) return;
 
@@ -86,25 +86,34 @@ async function enviarNotificacionPush(userId, titulo, cuerpo, datos = {}, notifi
         for (const row of tokenRes.rows) {
             const message = {
                 token: row.fcm_token,
-                // Solo data, no notification - así el cliente decide si mostrar
-                data: {
+                // notification hace que Android muestre la notificación automáticamente
+                notification: {
                     title: titulo,
-                    body: cuerpo,
+                    body: cuerpo
+                },
+                // data se usa para navegación cuando el usuario toca la notificación
+                data: {
+                    ...datos,
                     notificationId: notifId,
-                    tag: notifId,
-                    ...datos
+                    title: titulo,
+                    body: cuerpo
                 },
                 android: {
                     priority: 'high',
-                    ttl: 86400000
+                    notification: {
+                        channelId: 'torneos_high_priority',
+                        priority: 'max',
+                        defaultSound: true,
+                        defaultVibrateTimings: true,
+                        tag: notifId
+                    }
                 }
             };
 
             await admin.messaging().send(message);
-            console.log(`📱 Data push enviada a usuario ${userId} (tag: ${notifId})`);
+            console.log(`📱 Push enviada a usuario ${userId} (tag: ${notifId})`);
         }
     } catch (e) {
-        // Token inválido - eliminar de la BD
         if (e.code === 'messaging/registration-token-not-registered') {
             await db.query(`DELETE FROM user_tokens WHERE user_id = $1`, [userId]);
             console.log(`🗑️ Token inválido eliminado para usuario ${userId}`);
