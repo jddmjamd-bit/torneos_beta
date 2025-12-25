@@ -6,6 +6,55 @@ const isNativeApp = typeof window.Capacitor !== 'undefined';
 const API_BASE_URL = isNativeApp ? 'https://torneos-beta.onrender.com' : '';
 console.log(`📱 Modo: ${isNativeApp ? 'APP NATIVA' : 'WEB'}, API: ${API_BASE_URL || 'local'}`);
 
+// --- BACKGROUND MODE (Solo para búsqueda de partida) ---
+let backgroundModeActive = false;
+
+function activarModoSegundoPlano() {
+    if (!isNativeApp || backgroundModeActive) return;
+
+    try {
+        // Verificar si cordova.plugins.backgroundMode existe
+        if (window.cordova && window.cordova.plugins && window.cordova.plugins.backgroundMode) {
+            const bgMode = window.cordova.plugins.backgroundMode;
+
+            // Configurar notificación que se muestra mientras está en segundo plano
+            bgMode.setDefaults({
+                title: "Torneos Flash",
+                text: "Buscando rival...",
+                icon: "ic_launcher",
+                color: "#e94560",
+                resume: true,
+                hidden: false,
+                bigText: true
+            });
+
+            // Activar modo segundo plano
+            bgMode.enable();
+            backgroundModeActive = true;
+            console.log("🔋 Modo segundo plano ACTIVADO - La app seguirá buscando partida");
+        } else {
+            console.log("⚠️ cordova-plugin-background-mode no disponible");
+        }
+    } catch (e) {
+        console.error("Error activando modo segundo plano:", e);
+    }
+}
+
+function desactivarModoSegundoPlano() {
+    if (!isNativeApp || !backgroundModeActive) return;
+
+    try {
+        if (window.cordova && window.cordova.plugins && window.cordova.plugins.backgroundMode) {
+            window.cordova.plugins.backgroundMode.disable();
+            backgroundModeActive = false;
+            console.log("🔋 Modo segundo plano DESACTIVADO");
+        }
+    } catch (e) {
+        console.error("Error desactivando modo segundo plano:", e);
+    }
+}
+
+
 // --- FUNCIÓN GLOBAL DE VERIFICACIÓN DE SESIÓN (Accesible desde visibilitychange) ---
 async function verificarSesion(enterIfValid = true) {
     try {
@@ -504,6 +553,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'normal':
                     badge.classList.add('status-normal');
                     text.textContent = "🟢 Libre";
+                    desactivarModoSegundoPlano(); // Desactivar si estaba activo
                     if (btnBuscar) {
                         btnBuscar.textContent = "⚔️ JUGAR";
                         btnBuscar.disabled = false;
@@ -515,6 +565,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'buscando_partida':
                     badge.classList.add('status-buscando');
                     text.textContent = "🔍 Buscando...";
+                    activarModoSegundoPlano(); // Activar modo segundo plano
                     if (btnBuscar) {
                         btnBuscar.textContent = "❌ CANCELAR";
                         btnBuscar.disabled = false;
@@ -889,9 +940,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (currentUser && chatLists[canal]) agregarBurbuja(data, chatLists[canal], canal);
             }
         });
-        socket.on('error_busqueda', (m) => { alert(m); actualizarEstadoVisual('normal'); });
+        socket.on('error_busqueda', (m) => { alert(m); actualizarEstadoVisual('normal'); desactivarModoSegundoPlano(); });
 
         socket.on('partida_encontrada', (data) => {
+            // Desactivar modo segundo plano porque ya encontró rival
+            desactivarModoSegundoPlano();
+
             alert(`¡RIVAL ENCONTRADO!`);
             currentRoomId = data.salaId;
             maxBetAllowed = data.maxApuesta;
