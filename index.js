@@ -73,6 +73,7 @@ try {
 }
 
 // Función para enviar notificación push a un usuario
+// Usa data-only message para que el cliente decida si mostrar la notificación
 async function enviarNotificacionPush(userId, titulo, cuerpo, datos = {}, notificationId = null) {
     if (!firebaseInitialized) return;
 
@@ -85,33 +86,22 @@ async function enviarNotificacionPush(userId, titulo, cuerpo, datos = {}, notifi
         for (const row of tokenRes.rows) {
             const message = {
                 token: row.fcm_token,
-                notification: {
-                    title: titulo,
-                    body: cuerpo
-                },
+                // Solo data, no notification - así el cliente decide si mostrar
                 data: {
-                    ...datos,
+                    title: titulo,
+                    body: cuerpo,
                     notificationId: notifId,
-                    click_action: 'FLUTTER_NOTIFICATION_CLICK'
+                    tag: notifId,
+                    ...datos
                 },
                 android: {
                     priority: 'high',
-                    ttl: 86400000, // 24 horas
-                    notification: {
-                        sound: 'default',
-                        channelId: 'torneos_high_priority',
-                        priority: 'max',
-                        visibility: 'public',
-                        defaultSound: true,
-                        defaultVibrateTimings: true,
-                        notificationCount: 1,
-                        tag: notifId // Para poder eliminar después
-                    }
+                    ttl: 86400000
                 }
             };
 
             await admin.messaging().send(message);
-            console.log(`📱 Notificación enviada a usuario ${userId} (tag: ${notifId})`);
+            console.log(`📱 Data push enviada a usuario ${userId} (tag: ${notifId})`);
         }
     } catch (e) {
         // Token inválido - eliminar de la BD

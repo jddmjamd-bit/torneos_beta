@@ -116,44 +116,103 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error("🔔 Error registrando push:", error);
             });
 
-            // Notificación recibida (app en foreground) - NO mostrar si la app está abierta
+            // Variable para trackear si la app está en foreground
+            let appIsInForeground = true;
+
+            // Cuando la app pasa a background
+            document.addEventListener('visibilitychange', () => {
+                appIsInForeground = !document.hidden;
+                console.log("🔔 App foreground:", appIsInForeground);
+
+                // Limpiar todas las notificaciones cuando la app vuelve a foreground
+                if (appIsInForeground && LocalNotifications) {
+                    LocalNotifications.removeAllDeliveredNotifications()
+                        .then(() => console.log("🔔 Notificaciones limpiadas"))
+                        .catch(() => { });
+                }
+            });
+
+            // ID para notificaciones locales (necesita ser numérico)
+            let localNotifCounter = Date.now() % 100000;
+
+            // Data message recibido - decidir si mostrar notificación local
             PushNotifications.addListener('pushNotificationReceived', (notification) => {
-                console.log("🔔 Push recibida en foreground (ignorando):", notification.title);
-                // Las notificaciones se ignoran cuando la app está abierta
-                // porque el usuario ya está viendo la app
+                const data = notification.data || notification;
+                console.log("🔔 Data push recibida:", data);
 
                 // Manejar eliminación de notificación
-                if (notification.data && notification.data.action === 'remove_notification' && LocalNotifications) {
-                    const notifId = notification.data.notificationId;
-                    if (notifId) {
-                        // Intentar eliminar notificación local
-                        LocalNotifications.cancel({ notifications: [{ id: parseInt(notifId) || 0 }] })
-                            .catch(() => { }); // Ignorar errores
-                    }
+                if (data.action === 'remove_notification' && LocalNotifications) {
+                    console.log("🔔 Eliminando notificación:", data.notificationId);
+                    LocalNotifications.removeAllDeliveredNotifications().catch(() => { });
+                    return;
+                }
+
+                // Si la app está en foreground, NO mostrar notificación
+                if (appIsInForeground) {
+                    console.log("🔔 App en foreground - notificación ignorada");
+                    return;
+                }
+
+                // App en background - mostrar notificación local
+                if (LocalNotifications && data.title) {
+                    localNotifCounter++;
+                    LocalNotifications.schedule({
+                        notifications: [{
+                            id: localNotifCounter,
+                            title: data.title,
+                            body: data.body || '',
+                            sound: 'default',
+                            channelId: 'torneos_high_priority',
+                            extra: data
+                        }]
+                    }).then(() => console.log("🔔 Notificación local mostrada"))
+                        .catch(e => console.log("🔔 Error mostrando local:", e));
                 }
             });
 
             // Usuario tocó la notificación
             PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
                 console.log("🔔 Push tocada:", notification);
-                const data = notification.notification.data;
+                const data = notification.notification?.data || notification.notification?.extra || {};
 
                 // Navegar según el tipo de notificación
-                if (data) {
+                if (data.tipo === 'match_found') {
+                    if (typeof ejecutarCambioVista === 'function') {
+                        ejecutarCambioVista('private', null);
+                    }
+                } else if (data.tipo === 'chat') {
+                    if (typeof ejecutarCambioVista === 'function') {
+                        const vista = data.canal === 'general' ? 'general' : 'clash_chat';
+                        ejecutarCambioVista(vista, null);
+                    }
+                }
+
+                // Limpiar todas las notificaciones después de tocar una
+                if (LocalNotifications) {
+                    LocalNotifications.removeAllDeliveredNotifications().catch(() => { });
+                }
+            });
+
+            // Limpiar notificaciones también cuando se toca notificación local
+            if (LocalNotifications) {
+                LocalNotifications.addListener('localNotificationActionPerformed', (notification) => {
+                    console.log("🔔 Notificación local tocada:", notification);
+                    const data = notification.notification?.extra || {};
+
                     if (data.tipo === 'match_found') {
-                        // Ir al chat privado si hay partida encontrada
                         if (typeof ejecutarCambioVista === 'function') {
                             ejecutarCambioVista('private', null);
                         }
                     } else if (data.tipo === 'chat') {
-                        // Ir al canal correspondiente
                         if (typeof ejecutarCambioVista === 'function') {
                             const vista = data.canal === 'general' ? 'general' : 'clash_chat';
                             ejecutarCambioVista(vista, null);
                         }
                     }
-                }
-            });
+
+                    LocalNotifications.removeAllDeliveredNotifications().catch(() => { });
+                });
+            }
         } else {
             console.log("⚠️ Plugin PushNotifications no disponible");
         }
