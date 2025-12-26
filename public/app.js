@@ -130,12 +130,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
 
+            // Almacenar IDs de notificaciones de búsqueda para poder eliminarlas individualmente
+            const notificacionesBusqueda = {};
+
             // Push recibida (cuando la app está abierta)
-            // El servidor ya no envía push si el usuario está online,
-            // así que esto solo se dispara si hubo lag en la conexión
             PushNotifications.addListener('pushNotificationReceived', (notification) => {
                 console.log("🔔 Push recibida en app abierta:", notification);
-                // No hacemos nada - el servidor debería haber evitado enviar
+                const data = notification.data || {};
+
+                // Manejar eliminación de notificación específica
+                if (data.action === 'remove_notification' && data.notificationId) {
+                    console.log("🔔 Solicitud de eliminar notificación:", data.notificationId);
+                    // En Android, la notificación ya debería estar en la barra
+                    // Usamos el tag/notificationId para eliminarla
+                    PushNotifications.removeAllDeliveredNotifications()
+                        .then(() => console.log("🔔 Notificaciones eliminadas por solicitud"))
+                        .catch(() => { });
+                    return;
+                }
+
+                // Guardar referencia si es notificación de búsqueda
+                if (data.tipo === 'busqueda' && data.oderId) {
+                    notificacionesBusqueda[data.oderId] = data.notificationId;
+                }
             });
 
             // Usuario tocó la notificación (desde el sistema)
@@ -176,7 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
             : io();
 
         // --- TOAST NOTIFICATION IN-APP ---
-        function mostrarToast(mensaje, duracion = 10000) {
+        function mostrarToast(mensaje, duracion = 600000) {
             // Crear o reusar contenedor de toasts
             let container = document.getElementById('toast-container');
             if (!container) {

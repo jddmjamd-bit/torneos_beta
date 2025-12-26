@@ -940,10 +940,23 @@ io.on('connection', (socket) => {
 
         if (colaEsperaClash.length === 1) logClash(`🔍 ${row.username} busca...`);
 
-        // MATCHEO
+        // MATCHEO - solo con sockets conectados
+        // Filtrar sockets desconectados de la cola primero
+        colaEsperaClash = colaEsperaClash.filter(s => s.connected);
+
         if (colaEsperaClash.length >= 2) {
             const j1 = colaEsperaClash.shift();
             const j2 = colaEsperaClash.shift();
+
+            // Verificar que ambos sockets estén conectados
+            if (!j1.connected || !j2.connected) {
+                // Re-agregar el conectado a la cola
+                if (j1.connected) colaEsperaClash.unshift(j1);
+                if (j2.connected) colaEsperaClash.unshift(j2);
+                console.log("⚠️ Matcheo cancelado - uno o ambos jugadores desconectados");
+                return;
+            }
+
             const salaId = 'sala_' + Date.now();
 
             j1.currentRoom = salaId; j2.currentRoom = salaId;
@@ -968,21 +981,7 @@ io.on('connection', (socket) => {
                 }
             }
 
-            // Notificaciones push de rival encontrado
-            // Si alguno está desconectado, mensaje especial con tiempo de gracia
-            const j1Desconectado = !usuariosOnline.has(j1.userData.id);
-            const j2Desconectado = !usuariosOnline.has(j2.userData.id);
-
-            if (j1Desconectado) {
-                enviarNotificacionPush(j1.userData.id, '⚔️ ¡RIVAL ENCONTRADO!',
-                    `Tu rival es ${j2.userData.username}. ¡Tienes 1:30 min para entrar!`,
-                    { tipo: 'match_found', salaId, rivalId: j2.userData.id.toString(), urgente: 'true' });
-            }
-            if (j2Desconectado) {
-                enviarNotificacionPush(j2.userData.id, '⚔️ ¡RIVAL ENCONTRADO!',
-                    `Tu rival es ${j1.userData.username}. ¡Tienes 1:30 min para entrar!`,
-                    { tipo: 'match_found', salaId, rivalId: j1.userData.id.toString(), urgente: 'true' });
-            }
+            // Ya no enviamos push de match_found porque ambos están conectados
         }
     });
 
