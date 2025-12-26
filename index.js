@@ -28,25 +28,94 @@ const PORT = process.env.PORT || 5000; // Compatible con Render
 
 const nodemailer = require('nodemailer');
 
-// --- CORREO ---
+// --- CORREO (Configuración optimizada para Render) ---
+// Usar SMTP directo en lugar de 'service: gmail' para evitar timeouts
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false, // TLS
     auth: {
         user: process.env.GMAIL_USER,
         pass: (process.env.GMAIL_PASS || '').replace(/\s/g, '')
     },
-    tls: { rejectUnauthorized: false }
+    // Pool de conexiones para mejor rendimiento
+    pool: true,
+    maxConnections: 3,
+    maxMessages: 100,
+    // Timeouts más largos para Render (plan gratis puede ser lento)
+    connectionTimeout: 30000, // 30 segundos
+    greetingTimeout: 30000,
+    socketTimeout: 60000, // 60 segundos para envío
+    // TLS flexible
+    tls: {
+        rejectUnauthorized: false,
+        minVersion: 'TLSv1.2'
+    },
+    // Reintentar en caso de error
+    rateDelta: 1000,
+    rateLimit: 5
 });
 
-function notificarAdmin(asunto, mensaje) {
-    if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) return;
+// Verificar conexión SMTP al iniciar (con reintentos)
+let emailVerificado = false;
+async function verificarEmail() {
+    if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
+        console.log("⚠️ GMAIL_USER o GMAIL_PASS no configurados - Emails deshabilitados");
+        return;
+    }
+
+    // Intentar verificar hasta 3 veces
+    for (let intento = 1; intento <= 3; intento++) {
+        try {
+            console.log(`📧 Verificando conexión SMTP (intento ${intento}/3)...`);
+            await transporter.verify();
+            emailVerificado = true;
+            console.log("✅ Conexión SMTP verificada - Emails habilitados");
+            return;
+        } catch (e) {
+            console.error(`❌ Error verificando SMTP (intento ${intento}):`, e.message);
+            if (intento < 3) {
+                console.log("   Reintentando en 5 segundos...");
+                await new Promise(r => setTimeout(r, 5000));
+            }
+        }
+    }
+    console.log("⚠️ No se pudo verificar SMTP después de 3 intentos - Emails pueden fallar");
+}
+// Verificar después de 10 segundos para dar tiempo al servidor
+setTimeout(verificarEmail, 10000);
+
+async function notificarAdmin(asunto, mensaje) {
+    if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
+        console.log("⚠️ Email no enviado: credenciales no configuradas");
+        return;
+    }
+
     const mailOptions = {
         from: '"Torneos Flash Bot" <' + process.env.GMAIL_USER + '>',
         to: process.env.GMAIL_USER,
         subject: `🔔 ALERTA: ${asunto}`,
         text: mensaje
     };
-    transporter.sendMail(mailOptions).catch(e => console.error('Error correo:', e.message));
+
+    // Intentar enviar con reintentos
+    for (let intento = 1; intento <= 3; intento++) {
+        try {
+            console.log(`📧 Enviando email: "${asunto}" (intento ${intento}/3)...`);
+            const info = await transporter.sendMail(mailOptions);
+            console.log(`✅ Email enviado correctamente: ${info.messageId}`);
+            return; // Éxito, salir
+        } catch (e) {
+            console.error(`❌ Error enviando email (intento ${intento}):`, e.message);
+            if (intento < 3) {
+                // Esperar antes de reintentar (más tiempo en cada intento)
+                const espera = intento * 3000;
+                console.log(`   Reintentando en ${espera / 1000} segundos...`);
+                await new Promise(r => setTimeout(r, espera));
+            }
+        }
+    }
+    console.log("❌ Email no pudo ser enviado después de 3 intentos");
 }
 
 app.use(express.json({ limit: '200mb' }));
@@ -205,6 +274,55 @@ app.get('/check-ip', async (req, res) => {
         });
     } catch (e) {
         res.json({ error: 'No se pudo obtener la IP', detalle: e.message });
+    }
+});
+
+// Endpoint para probar que el email funciona (SOLO PARA DEBUG)
+app.get('/test-email', async (req, res) => {
+    console.log("🧪 Test de email iniciado...");
+    console.log("   GMAIL_USER:", process.env.GMAIL_USER ? `${process.env.GMAIL_USER.substring(0, 3)}...` : "NO CONFIGURADO");
+    console.log("   GMAIL_PASS:", process.env.GMAIL_PASS ? "CONFIGURADO (oculto)" : "NO CONFIGURADO");
+
+    if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
+        return res.json({
+            success: false,
+            error: 'GMAIL_USER o GMAIL_PASS no configurados en variables de entorno',
+            gmailUser: process.env.GMAIL_USER ? 'Configurado' : 'NO CONFIGURADO',
+            gmailPass: process.env.GMAIL_PASS ? 'Configurado' : 'NO CONFIGURADO'
+        });
+    }
+
+    try {
+        // Primero verificar conexión SMTP
+        console.log("📧 Verificando conexión SMTP...");
+        await transporter.verify();
+        console.log("✅ Conexión SMTP OK");
+
+        // Enviar email de prueba
+        console.log("📧 Enviando email de prueba...");
+        const info = await transporter.sendMail({
+            from: '"Test Torneos Flash" <' + process.env.GMAIL_USER + '>',
+            to: process.env.GMAIL_USER,
+            subject: '🧪 TEST - Email funcionando correctamente',
+            text: `Este es un email de prueba enviado el ${new Date().toLocaleString()}\n\nSi recibes este mensaje, el sistema de emails funciona correctamente.`
+        });
+
+        console.log("✅ Email de prueba enviado:", info.messageId);
+
+        res.json({
+            success: true,
+            message: 'Email de prueba enviado correctamente',
+            messageId: info.messageId,
+            to: process.env.GMAIL_USER
+        });
+    } catch (e) {
+        console.error("❌ Error en test de email:", e.message);
+        res.json({
+            success: false,
+            error: e.message,
+            code: e.code,
+            command: e.command
+        });
     }
 });
 
