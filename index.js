@@ -174,6 +174,10 @@ let activeMatches = {};
 // Set de usuarios online (conectados por socket) - no enviar push a estos
 let usuariosOnline = new Set();
 
+// Búsquedas activas persistentes (se mantienen hasta 10 min después de desconexión)
+// Estructura: { oderId: { oderId, username, startTime, notifId, socket, disconnected, timeoutId } }
+let busquedasActivas = {};
+
 // --- REPORTERO ---
 async function logClash(texto) {
     const fecha = new Date().toISOString();
@@ -787,6 +791,19 @@ io.on('connection', (socket) => {
         // Marcar usuario como online para no enviarle push notifications
         usuariosOnline.add(user.id);
         console.log(`✅ Usuario ${user.username} (${user.id}) está ONLINE - no recibirá push`);
+
+        // Enviar búsquedas activas a este usuario para que vea los toasts
+        // (incluso si entró después de que empezaron a buscar)
+        for (const oderId in busquedasActivas) {
+            if (parseInt(oderId) !== user.id) { // No mostrar mi propia búsqueda
+                const busqueda = busquedasActivas[oderId];
+                socket.emit('alguien_buscando', {
+                    username: busqueda.username,
+                    oderId: busqueda.oderId
+                });
+            }
+        }
+
         // Recuperar sala si existe
         if (user.sala_actual && activeMatches[user.sala_actual]) {
             const salaId = user.sala_actual;
@@ -855,16 +872,67 @@ io.on('connection', (socket) => {
 
         socket.userData = row;
         if (colaEsperaClash.find(s => s.id === socket.id)) return;
+        if (busquedasActivas[usuario.id]) return; // Ya está buscando
 
+        // Agregar a cola y registro de búsquedas activas
         colaEsperaClash.push(socket);
         await db.query(`UPDATE users SET estado = 'buscando_partida' WHERE id = $1`, [usuario.id]);
 
-        // Notificar a todos que alguien busca partida
         const notifId = `busqueda_${usuario.id}_${Date.now()}`;
-        socket.busquedaNotifId = notifId; // Guardar para poder eliminar si cancela
+        socket.busquedaNotifId = notifId;
+
+        // Timer de 10 minutos para cancelar búsqueda automáticamente
+        const timeoutId = setTimeout(async () => {
+            // Cancelar por timeout
+            if (busquedasActivas[usuario.id]) {
+                const busqueda = busquedasActivas[usuario.id];
+
+                // Remover de cola
+                colaEsperaClash = colaEsperaClash.filter(s => s.userData?.id !== usuario.id);
+
+                // Actualizar BD
+                await db.query(`UPDATE users SET estado = 'normal' WHERE id = $1`, [usuario.id]);
+
+                // Log en registro
+                logClash(`⏰ ${busqueda.username} - Búsqueda cancelada (10 min sin rival)`);
+
+                // Notificar al buscador si está online
+                if (busqueda.socket && busqueda.socket.connected) {
+                    busqueda.socket.emit('busqueda_timeout', {
+                        mensaje: '⏰ Tu búsqueda fue cancelada porque nadie respondió en 10 minutos.'
+                    });
+                }
+
+                // Enviar push al buscador si está offline
+                enviarNotificacionPush(usuario.id, '⏰ Búsqueda cancelada',
+                    'Nadie respondió en 10 minutos. Intenta buscar de nuevo.',
+                    { tipo: 'busqueda_timeout' });
+
+                // Eliminar notificación push de búsqueda
+                eliminarNotificacion(busqueda.notifId);
+
+                // Emitir cancelación a todos
+                io.emit('busqueda_cancelada', { oderId: usuario.id, username: busqueda.username });
+
+                delete busquedasActivas[usuario.id];
+            }
+        }, 10 * 60 * 1000); // 10 minutos
+
+        // Guardar en búsquedas activas
+        busquedasActivas[usuario.id] = {
+            oderId: usuario.id,
+            username: row.username,
+            startTime: Date.now(),
+            notifId: notifId,
+            socket: socket,
+            disconnected: false,
+            timeoutId: timeoutId
+        };
+
+        // Notificar a todos que alguien busca partida (push a offline)
         enviarNotificacionATodos(usuario.id, '🔍 Alguien busca partida', `${row.username} está buscando rival en Clash Royale`, {
             tipo: 'busqueda',
-            userId: usuario.id.toString()
+            oderId: usuario.id.toString()
         }, notifId);
 
         // Notificar a todos los usuarios ONLINE (in-app toast)
@@ -872,6 +940,7 @@ io.on('connection', (socket) => {
 
         if (colaEsperaClash.length === 1) logClash(`🔍 ${row.username} busca...`);
 
+        // MATCHEO
         if (colaEsperaClash.length >= 2) {
             const j1 = colaEsperaClash.shift();
             const j2 = colaEsperaClash.shift();
@@ -888,29 +957,52 @@ io.on('connection', (socket) => {
             logClash(`⚔️ MATCH: ${j1.userData.username} vs ${j2.userData.username}`);
             io.to(salaId).emit('partida_encontrada', { salaId, p1: j1.userData, p2: j2.userData, maxApuesta: maxAp });
 
-            // Notificaciones push de rival encontrado (alta prioridad con sonido)
-            enviarNotificacionPush(j1.userData.id, '⚔️ ¡RIVAL ENCONTRADO!',
-                `Tu rival es ${j2.userData.username}. ¡Entra ahora!`,
-                { tipo: 'match_found', salaId, rivalId: j2.userData.id.toString() });
-            enviarNotificacionPush(j2.userData.id, '⚔️ ¡RIVAL ENCONTRADO!',
-                `Tu rival es ${j1.userData.username}. ¡Entra ahora!`,
-                { tipo: 'match_found', salaId, rivalId: j1.userData.id.toString() });
+            // Limpiar búsquedas activas de ambos jugadores
+            for (const player of [j1, j2]) {
+                const busqueda = busquedasActivas[player.userData.id];
+                if (busqueda) {
+                    clearTimeout(busqueda.timeoutId);
+                    eliminarNotificacion(busqueda.notifId);
+                    io.emit('busqueda_cancelada', { oderId: player.userData.id, username: player.userData.username });
+                    delete busquedasActivas[player.userData.id];
+                }
+            }
+
+            // Notificaciones push de rival encontrado
+            // Si alguno está desconectado, mensaje especial con tiempo de gracia
+            const j1Desconectado = !usuariosOnline.has(j1.userData.id);
+            const j2Desconectado = !usuariosOnline.has(j2.userData.id);
+
+            if (j1Desconectado) {
+                enviarNotificacionPush(j1.userData.id, '⚔️ ¡RIVAL ENCONTRADO!',
+                    `Tu rival es ${j2.userData.username}. ¡Tienes 1:30 min para entrar!`,
+                    { tipo: 'match_found', salaId, rivalId: j2.userData.id.toString(), urgente: 'true' });
+            }
+            if (j2Desconectado) {
+                enviarNotificacionPush(j2.userData.id, '⚔️ ¡RIVAL ENCONTRADO!',
+                    `Tu rival es ${j1.userData.username}. ¡Tienes 1:30 min para entrar!`,
+                    { tipo: 'match_found', salaId, rivalId: j1.userData.id.toString(), urgente: 'true' });
+            }
         }
     });
 
     socket.on('cancelar_busqueda', async () => {
         colaEsperaClash = colaEsperaClash.filter(s => s.id !== socket.id);
         if (socket.userData) {
-            await db.query(`UPDATE users SET estado = 'normal' WHERE id = $1`, [socket.userData.id]);
-            logClash(`🚫 ${socket.userData.username} canceló.`);
+            const oderId = socket.userData.id;
 
-            // Eliminar notificación push de búsqueda
-            if (socket.busquedaNotifId) {
-                eliminarNotificacion(socket.busquedaNotifId);
+            // Limpiar búsqueda activa
+            if (busquedasActivas[oderId]) {
+                clearTimeout(busquedasActivas[oderId].timeoutId);
+                eliminarNotificacion(busquedasActivas[oderId].notifId);
+                delete busquedasActivas[oderId];
             }
 
+            await db.query(`UPDATE users SET estado = 'normal' WHERE id = $1`, [oderId]);
+            logClash(`🚫 ${socket.userData.username} canceló manualmente.`);
+
             // Notificar a todos para que quiten el toast in-app
-            io.emit('busqueda_cancelada', { oderId: socket.userData.id, username: socket.userData.username });
+            io.emit('busqueda_cancelada', { oderId: oderId, username: socket.userData.username });
         }
     });
 
