@@ -925,6 +925,47 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         socket.on('error_busqueda', (m) => { alert(m); actualizarEstadoVisual('normal'); });
 
+        // Handler para reconexión con partida activa - navegar automáticamente al chat privado
+        socket.on('restaurar_partida', (data) => {
+            console.log("🔄 Restaurando partida:", data);
+            currentRoomId = data.salaId;
+            maxBetAllowed = data.maxApuesta;
+
+            // Limpieza
+            const privateMsgs = document.getElementById('private-messages');
+            if (privateMsgs) privateMsgs.innerHTML = '';
+
+            // Mostrar datos del rival
+            document.getElementById('rival-name').textContent = `VS ${data.rival.username}`;
+            document.getElementById('max-bet-info').textContent = `Tope: $${maxBetAllowed.toLocaleString()}`;
+
+            // Restaurar historial de chat privado
+            if (data.historial && data.historial.length > 0) {
+                data.historial.forEach(msg => {
+                    agregarBurbujaPrivada(msg);
+                });
+            }
+
+            // Configurar UI según estado
+            if (data.iniciado) {
+                // Partida ya iniciada - ir a resultado
+                actualizarEstadoVisual('jugando', true);
+                ejecutarCambioVista('game_result', null);
+            } else {
+                // En negociación - ir a chat privado
+                inputGameMode.value = '';
+                inputBetAmount.value = '';
+                inputGameMode.disabled = false;
+                inputBetAmount.disabled = false;
+                btnStartGame.textContent = "🎮 COMENZAR PARTIDA";
+                btnStartGame.disabled = true;
+                btnStartGame.classList.remove('enabled');
+
+                actualizarEstadoVisual('partida_encontrada', true);
+                ejecutarCambioVista('private', null);
+            }
+        });
+
         socket.on('partida_encontrada', (data) => {
             alert(`¡RIVAL ENCONTRADO!`);
             currentRoomId = data.salaId;
