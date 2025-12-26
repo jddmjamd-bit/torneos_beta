@@ -55,6 +55,8 @@ const initDB = async () => {
         )`);
         // Migración: Agregar columna player_tag si no existe
         await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS player_tag TEXT`);
+        // Migración: Agregar columna telefono si no existe
+        await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS telefono TEXT`);
 
         // 2. Mensajes
         await db.query(`CREATE TABLE IF NOT EXISTS messages (
@@ -100,12 +102,48 @@ const initDB = async () => {
             fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`);
 
+        // 6. Tokens FCM (Push Notifications)
         await db.query(`CREATE TABLE IF NOT EXISTS user_tokens (
             id SERIAL PRIMARY KEY,
-            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-            fcm_token TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT NOW(),
+            user_id INTEGER REFERENCES users(id),
+            fcm_token TEXT,
             UNIQUE(user_id, fcm_token)
+        )`);
+
+        // 7. Tickets de usuario (Sistema de Sorteos)
+        await db.query(`CREATE TABLE IF NOT EXISTS user_tickets (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id),
+            cantidad INTEGER DEFAULT 0,
+            acumulado INTEGER DEFAULT 0,
+            UNIQUE(user_id)
+        )`);
+        // Migración: Agregar columna acumulado si no existe
+        await db.query(`ALTER TABLE user_tickets ADD COLUMN IF NOT EXISTS acumulado INTEGER DEFAULT 0`);
+
+        // 8. Sorteos/Rifas
+        await db.query(`CREATE TABLE IF NOT EXISTS raffles (
+            id SERIAL PRIMARY KEY,
+            nombre TEXT NOT NULL,
+            categoria TEXT NOT NULL,
+            precio INTEGER NOT NULL,
+            tickets_necesarios INTEGER NOT NULL,
+            tickets_actuales INTEGER DEFAULT 0,
+            fecha_limite TIMESTAMP,
+            estado TEXT DEFAULT 'activo',
+            ganador_id INTEGER,
+            ganador_nombre TEXT,
+            fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        // 9. Participaciones en sorteos
+        await db.query(`CREATE TABLE IF NOT EXISTS raffle_entries (
+            id SERIAL PRIMARY KEY,
+            raffle_id INTEGER REFERENCES raffles(id) ON DELETE CASCADE,
+            user_id INTEGER REFERENCES users(id),
+            tickets_asignados INTEGER DEFAULT 0,
+            fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(raffle_id, user_id)
         )`);
 
         console.log("👍 Tablas verificadas en Neon.");
@@ -114,7 +152,6 @@ const initDB = async () => {
         console.error("❌ Error inicializando Neon:", err.message);
     }
 };
-
 
 initDB();
 

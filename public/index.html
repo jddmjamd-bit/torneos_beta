@@ -25,6 +25,8 @@
                 <input type="password" name="password" placeholder="Contraseña" required>
                 <input type="text" name="playerTag" placeholder="Player Tag Clash Royale (#XXXXXXX)" required
                     pattern="#[0289PYLQGRJCUV]{3,}" title="Debe empezar con # seguido de 3+ caracteres válidos">
+                <input type="tel" name="telefono" placeholder="Teléfono (WhatsApp)" required minlength="7"
+                    title="Ingresa tu número para contactarte si ganas un sorteo">
                 <button type="submit">Registrarse</button>
             </form>
             <p class="switch-text">¿Ya tienes cuenta? <a href="#" id="ir-a-login">Entrar</a></p>
@@ -167,10 +169,11 @@
                     <div class="channel category-title" onclick="toggleDropdown('clash-menu')"><span>⚔️ CLASH
                             ROYALE</span><i class="fas fa-chevron-down"></i></div>
                     <div id="clash-menu" class="submenu hidden">
-                        <!-- IDs sincronizados: clash_chat, clash_logs -->
+                        <!-- IDs sincronizados: clash_chat, clash_logs, sorteos -->
                         <div class="channel sub-channel" onclick="cambiarCanal('clash_chat', this)">💬 General Clash
                         </div>
                         <div class="channel sub-channel" onclick="cambiarCanal('clash_logs', this)">📜 Registro</div>
+                        <div class="channel sub-channel" onclick="cambiarCanal('sorteos', this)">🎁 Sorteos</div>
                     </div>
                 </div>
             </div>
@@ -226,7 +229,56 @@
                 <div id="logs-messages-list" class="messages-container" style="background:#2f3136;"></div>
             </div>
 
+            <!-- SORTEOS -->
+            <div id="view-sorteos" class="view-section hidden">
+                <header class="chat-header flex-header">
+                    <h3>🎁 Sorteos</h3>
+                    <div class="tickets-display">
+                        <span>🎟️ Mis Tickets: <strong id="user-tickets-count">0</strong></span>
+                    </div>
+                </header>
 
+                <!-- Admin: Botón crear sorteo -->
+                <div id="sorteos-admin-controls" class="sorteos-admin-controls hidden">
+                    <button onclick="abrirModalCrearSorteo()" class="btn-crear-sorteo">➕ Crear Sorteo</button>
+                </div>
+
+                <!-- Lista de sorteos activos -->
+                <div id="sorteos-list" class="sorteos-container">
+                    <p style="text-align:center; color:#bbb; padding:40px;">Cargando sorteos...</p>
+                </div>
+            </div>
+
+            <!-- MODAL CREAR SORTEO (ADMIN) -->
+            <div id="create-raffle-modal" class="modal-overlay hidden">
+                <div class="modal-content">
+                    <header class="modal-header">
+                        <h3>➕ Crear Sorteo</h3>
+                        <button onclick="document.getElementById('create-raffle-modal').classList.add('hidden')"
+                            class="close-btn">&times;</button>
+                    </header>
+                    <form id="create-raffle-form" class="deposit-section">
+                        <input type="text" id="raffle-nombre" placeholder="Nombre (ej: Pass Royale, 2500 Gemas)"
+                            required>
+                        <select id="raffle-categoria">
+                            <option value="gemas">💎 Gemas</option>
+                            <option value="pass">👑 Pass Royale</option>
+                            <option value="evoluciones">✨ Evoluciones</option>
+                            <option value="emotes">😄 Emotes</option>
+                            <option value="cartas">🃏 Cartas (Legendarias/Campeones)</option>
+                            <option value="comodines">🎴 Comodines</option>
+                            <option value="especial">🎁 Oferta Especial</option>
+                        </select>
+                        <input type="number" id="raffle-precio" placeholder="Precio en COP (ej: 15000)" required
+                            min="1000">
+                        <input type="number" id="raffle-duracion" placeholder="Duración en horas (ej: 24)" required
+                            min="1">
+                        <p id="raffle-tickets-preview" style="color:#faa61a; font-size:0.9rem;">Tickets necesarios: 0
+                        </p>
+                        <button type="submit" class="deposit-action-btn">Crear Sorteo</button>
+                    </form>
+                </div>
+            </div>
 
             <!-- VISTA PRIVADA -->
             <div id="view-private" class="view-section hidden">

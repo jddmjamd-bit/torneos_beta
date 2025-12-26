@@ -28,94 +28,25 @@ const PORT = process.env.PORT || 5000; // Compatible con Render
 
 const nodemailer = require('nodemailer');
 
-// --- CORREO (Configuración optimizada para Render) ---
-// Usar SMTP directo en lugar de 'service: gmail' para evitar timeouts
+// --- CORREO ---
 const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false, // TLS
+    service: 'gmail',
     auth: {
         user: process.env.GMAIL_USER,
         pass: (process.env.GMAIL_PASS || '').replace(/\s/g, '')
     },
-    // Pool de conexiones para mejor rendimiento
-    pool: true,
-    maxConnections: 3,
-    maxMessages: 100,
-    // Timeouts más largos para Render (plan gratis puede ser lento)
-    connectionTimeout: 30000, // 30 segundos
-    greetingTimeout: 30000,
-    socketTimeout: 60000, // 60 segundos para envío
-    // TLS flexible
-    tls: {
-        rejectUnauthorized: false,
-        minVersion: 'TLSv1.2'
-    },
-    // Reintentar en caso de error
-    rateDelta: 1000,
-    rateLimit: 5
+    tls: { rejectUnauthorized: false }
 });
 
-// Verificar conexión SMTP al iniciar (con reintentos)
-let emailVerificado = false;
-async function verificarEmail() {
-    if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
-        console.log("⚠️ GMAIL_USER o GMAIL_PASS no configurados - Emails deshabilitados");
-        return;
-    }
-
-    // Intentar verificar hasta 3 veces
-    for (let intento = 1; intento <= 3; intento++) {
-        try {
-            console.log(`📧 Verificando conexión SMTP (intento ${intento}/3)...`);
-            await transporter.verify();
-            emailVerificado = true;
-            console.log("✅ Conexión SMTP verificada - Emails habilitados");
-            return;
-        } catch (e) {
-            console.error(`❌ Error verificando SMTP (intento ${intento}):`, e.message);
-            if (intento < 3) {
-                console.log("   Reintentando en 5 segundos...");
-                await new Promise(r => setTimeout(r, 5000));
-            }
-        }
-    }
-    console.log("⚠️ No se pudo verificar SMTP después de 3 intentos - Emails pueden fallar");
-}
-// Verificar después de 10 segundos para dar tiempo al servidor
-setTimeout(verificarEmail, 10000);
-
-async function notificarAdmin(asunto, mensaje) {
-    if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
-        console.log("⚠️ Email no enviado: credenciales no configuradas");
-        return;
-    }
-
+function notificarAdmin(asunto, mensaje) {
+    if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) return;
     const mailOptions = {
         from: '"Torneos Flash Bot" <' + process.env.GMAIL_USER + '>',
         to: process.env.GMAIL_USER,
         subject: `🔔 ALERTA: ${asunto}`,
         text: mensaje
     };
-
-    // Intentar enviar con reintentos
-    for (let intento = 1; intento <= 3; intento++) {
-        try {
-            console.log(`📧 Enviando email: "${asunto}" (intento ${intento}/3)...`);
-            const info = await transporter.sendMail(mailOptions);
-            console.log(`✅ Email enviado correctamente: ${info.messageId}`);
-            return; // Éxito, salir
-        } catch (e) {
-            console.error(`❌ Error enviando email (intento ${intento}):`, e.message);
-            if (intento < 3) {
-                // Esperar antes de reintentar (más tiempo en cada intento)
-                const espera = intento * 3000;
-                console.log(`   Reintentando en ${espera / 1000} segundos...`);
-                await new Promise(r => setTimeout(r, espera));
-            }
-        }
-    }
-    console.log("❌ Email no pudo ser enviado después de 3 intentos");
+    transporter.sendMail(mailOptions).catch(e => console.error('Error correo:', e.message));
 }
 
 app.use(express.json({ limit: '200mb' }));
@@ -274,55 +205,6 @@ app.get('/check-ip', async (req, res) => {
         });
     } catch (e) {
         res.json({ error: 'No se pudo obtener la IP', detalle: e.message });
-    }
-});
-
-// Endpoint para probar que el email funciona (SOLO PARA DEBUG)
-app.get('/test-email', async (req, res) => {
-    console.log("🧪 Test de email iniciado...");
-    console.log("   GMAIL_USER:", process.env.GMAIL_USER ? `${process.env.GMAIL_USER.substring(0, 3)}...` : "NO CONFIGURADO");
-    console.log("   GMAIL_PASS:", process.env.GMAIL_PASS ? "CONFIGURADO (oculto)" : "NO CONFIGURADO");
-
-    if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
-        return res.json({
-            success: false,
-            error: 'GMAIL_USER o GMAIL_PASS no configurados en variables de entorno',
-            gmailUser: process.env.GMAIL_USER ? 'Configurado' : 'NO CONFIGURADO',
-            gmailPass: process.env.GMAIL_PASS ? 'Configurado' : 'NO CONFIGURADO'
-        });
-    }
-
-    try {
-        // Primero verificar conexión SMTP
-        console.log("📧 Verificando conexión SMTP...");
-        await transporter.verify();
-        console.log("✅ Conexión SMTP OK");
-
-        // Enviar email de prueba
-        console.log("📧 Enviando email de prueba...");
-        const info = await transporter.sendMail({
-            from: '"Test Torneos Flash" <' + process.env.GMAIL_USER + '>',
-            to: process.env.GMAIL_USER,
-            subject: '🧪 TEST - Email funcionando correctamente',
-            text: `Este es un email de prueba enviado el ${new Date().toLocaleString()}\n\nSi recibes este mensaje, el sistema de emails funciona correctamente.`
-        });
-
-        console.log("✅ Email de prueba enviado:", info.messageId);
-
-        res.json({
-            success: true,
-            message: 'Email de prueba enviado correctamente',
-            messageId: info.messageId,
-            to: process.env.GMAIL_USER
-        });
-    } catch (e) {
-        console.error("❌ Error en test de email:", e.message);
-        res.json({
-            success: false,
-            error: e.message,
-            code: e.code,
-            command: e.command
-        });
     }
 });
 
@@ -573,17 +455,22 @@ app.get('/admin-fix-status/:targetUser/:adminUser', async (req, res) => {
 // --- AUTH ---
 app.post('/api/register', async (req, res) => {
     try {
-        const { username, email, password, playerTag } = req.body;
+        const { username, email, password, playerTag, telefono } = req.body;
 
         // Validar player tag format
         if (!playerTag || !playerTag.match(/^#[0289PYLQGRJCUV]{3,}$/i)) {
             return res.status(400).json({ error: 'Player Tag inválido. Debe empezar con # seguido de 3+ caracteres válidos' });
         }
 
+        // Validar teléfono
+        if (!telefono || telefono.length < 7) {
+            return res.status(400).json({ error: 'Teléfono inválido. Ingresa un número válido.' });
+        }
+
         const h = await bcrypt.hash(password, 10);
         // Postgres usa RETURNING id
-        const result = await db.query(`INSERT INTO users (username, email, password, player_tag) VALUES ($1, $2, $3, $4) RETURNING id`,
-            [username, email, h, playerTag.toUpperCase()]);
+        const result = await db.query(`INSERT INTO users (username, email, password, player_tag, telefono) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+            [username, email, h, playerTag.toUpperCase(), telefono]);
 
         res.cookie('userId', result.rows[0].id, { httpOnly: true, signed: true, maxAge: 86400000 });
         res.json({ message: 'Ok', userId: result.rows[0].id });
@@ -878,6 +765,375 @@ app.post('/api/admin/resolve-dispute', async (req, res) => {
         }
         res.json({ success: true });
     } catch (e) { res.status(500).json({ error: 'Error disputa' }); }
+});
+
+
+// --- SISTEMA DE SORTEOS ---
+
+// Función para acumular tickets cuando termina una partida
+// Acumulativo: el usuario suma apuestas y gana 1 ticket por cada 6000 COP acumulados
+async function acumularTickets(userId, montoApostado) {
+    try {
+        // 1. Obtener o crear registro del usuario con su acumulado
+        let ticketRes = await db.query(`SELECT * FROM user_tickets WHERE user_id = $1`, [userId]);
+
+        if (ticketRes.rows.length === 0) {
+            // Crear registro inicial
+            await db.query(`INSERT INTO user_tickets (user_id, cantidad, acumulado) VALUES ($1, 0, 0)`, [userId]);
+            ticketRes = await db.query(`SELECT * FROM user_tickets WHERE user_id = $1`, [userId]);
+        }
+
+        const registro = ticketRes.rows[0];
+        const acumuladoAnterior = parseInt(registro.acumulado) || 0;
+        const nuevoAcumulado = acumuladoAnterior + montoApostado;
+
+        // 2. Calcular cuántos tickets ganó con el nuevo acumulado
+        const ticketsGanados = Math.floor(nuevoAcumulado / 6000);
+        const residuo = nuevoAcumulado % 6000; // Lo que sobra después de los tickets
+
+        // 3. Solo dar tickets si hay nuevos (comparando con lo que ya tenía considerando el acumulado anterior)
+        const ticketsAnteriores = Math.floor(acumuladoAnterior / 6000);
+        const ticketsNuevos = ticketsGanados - ticketsAnteriores;
+
+        if (ticketsNuevos > 0) {
+            // Actualizar: sumar tickets nuevos y guardar el residuo
+            await db.query(`
+                UPDATE user_tickets 
+                SET cantidad = cantidad + $1, acumulado = $2 
+                WHERE user_id = $3
+            `, [ticketsNuevos, residuo, userId]);
+
+            console.log(`🎟️ Usuario ${userId}: apostó $${montoApostado}, acumulado $${nuevoAcumulado} → ganó ${ticketsNuevos} ticket(s), residuo $${residuo}`);
+            return ticketsNuevos;
+        } else {
+            // Solo actualizar el acumulado
+            await db.query(`UPDATE user_tickets SET acumulado = $1 WHERE user_id = $2`, [nuevoAcumulado, userId]);
+            console.log(`🎟️ Usuario ${userId}: apostó $${montoApostado}, acumulado $${nuevoAcumulado} (faltan $${6000 - nuevoAcumulado} para 1 ticket)`);
+            return 0;
+        }
+    } catch (e) {
+        console.error("Error acumulando tickets:", e);
+        return 0;
+    }
+}
+
+// Función para ejecutar el sorteo cuando se completan los tickets
+async function ejecutarSorteo(raffleId) {
+    try {
+        // 1. Verificar que el sorteo está activo y lleno
+        const raffleRes = await db.query(`SELECT * FROM raffles WHERE id = $1 AND estado = 'activo'`, [raffleId]);
+        const raffle = raffleRes.rows[0];
+        if (!raffle || raffle.tickets_actuales < raffle.tickets_necesarios) return;
+
+        // 2. Obtener todas las participaciones
+        const entriesRes = await db.query(`SELECT * FROM raffle_entries WHERE raffle_id = $1`, [raffleId]);
+        const entries = entriesRes.rows;
+
+        // 3. Crear array ponderado por tickets
+        let pool = [];
+        for (const entry of entries) {
+            for (let i = 0; i < entry.tickets_asignados; i++) {
+                pool.push(entry.user_id);
+            }
+        }
+
+        // 4. Elegir ganador al azar
+        const ganadorId = pool[Math.floor(Math.random() * pool.length)];
+
+        // 5. Obtener datos del ganador
+        const ganadorRes = await db.query(`SELECT username, email, telefono, player_tag FROM users WHERE id = $1`, [ganadorId]);
+        const ganador = ganadorRes.rows[0];
+
+        // 6. Actualizar el sorteo
+        await db.query(`UPDATE raffles SET estado = 'completado', ganador_id = $1, ganador_nombre = $2 WHERE id = $3`,
+            [ganadorId, ganador.username, raffleId]);
+
+        // 7. Enviar correo al admin con datos del ganador
+        if (process.env.GMAIL_USER && process.env.GMAIL_PASS) {
+            const mailOptions = {
+                from: '"Torneos Flash Bot" <' + process.env.GMAIL_USER + '>',
+                to: process.env.GMAIL_USER,
+                subject: `🏆 SORTEO COMPLETADO: ${raffle.nombre}`,
+                text: `¡El sorteo "${raffle.nombre}" se ha completado!\n\n` +
+                    `GANADOR:\n` +
+                    `- Usuario: ${ganador.username}\n` +
+                    `- Teléfono: ${ganador.telefono || 'No registrado'}\n` +
+                    `- Player Tag: ${ganador.player_tag}\n` +
+                    `- Email: ${ganador.email}\n\n` +
+                    `Premio: ${raffle.nombre} (${raffle.categoria})\n` +
+                    `Valor: $${raffle.precio.toLocaleString()}\n\n` +
+                    `¡Contacta al ganador para entregar el premio!`
+            };
+            transporter.sendMail(mailOptions).catch(e => console.error('Error correo sorteo:', e.message));
+        }
+
+        // 8. Notificar por socket a todos
+        io.emit('sorteo_ganador', {
+            raffleId: raffleId,
+            nombre: raffle.nombre,
+            ganadorNombre: ganador.username,
+            ganadorId: ganadorId
+        });
+
+        // 9. Push notification al ganador
+        enviarNotificacionPush(ganadorId, '🏆 ¡GANASTE EL SORTEO!',
+            `¡Felicidades! Ganaste "${raffle.nombre}". Te contactaremos pronto.`,
+            { tipo: 'sorteo_ganador', raffleId: raffleId.toString() });
+
+        console.log(`🏆 Sorteo #${raffleId} completado. Ganador: ${ganador.username}`);
+    } catch (e) {
+        console.error("Error ejecutando sorteo:", e);
+    }
+}
+
+// Verificar sorteos expirados cada minuto
+setInterval(async () => {
+    try {
+        // Buscar sorteos activos que ya expiraron
+        const expiradosRes = await db.query(`
+            SELECT * FROM raffles 
+            WHERE estado = 'activo' AND fecha_limite < NOW()
+        `);
+
+        for (const raffle of expiradosRes.rows) {
+            console.log(`⏰ Sorteo #${raffle.id} (${raffle.nombre}) expirado - devolviendo tickets`);
+
+            // Obtener participaciones y devolver tickets
+            const entriesRes = await db.query(`SELECT * FROM raffle_entries WHERE raffle_id = $1`, [raffle.id]);
+            for (const entry of entriesRes.rows) {
+                await db.query(`
+                    INSERT INTO user_tickets (user_id, cantidad) VALUES ($1, $2)
+                    ON CONFLICT (user_id) DO UPDATE SET cantidad = user_tickets.cantidad + $2
+                `, [entry.user_id, entry.tickets_asignados]);
+
+                // Notificar al usuario
+                enviarNotificacionPush(entry.user_id, '⏰ Sorteo Expirado',
+                    `El sorteo "${raffle.nombre}" expiró. Tus ${entry.tickets_asignados} ticket(s) fueron devueltos.`,
+                    { tipo: 'sorteo_expirado', raffleId: raffle.id.toString() });
+            }
+
+            // Eliminar participaciones
+            await db.query(`DELETE FROM raffle_entries WHERE raffle_id = $1`, [raffle.id]);
+
+            // Marcar como expirado
+            await db.query(`UPDATE raffles SET estado = 'expirado', tickets_actuales = 0 WHERE id = $1`, [raffle.id]);
+
+            // Notificar por socket
+            io.emit('sorteo_expirado', { raffleId: raffle.id, nombre: raffle.nombre });
+
+            // Correo al admin
+            notificarAdmin("SORTEO EXPIRADO", `El sorteo "${raffle.nombre}" expiró sin completarse. Tickets devueltos a los usuarios.`);
+        }
+    } catch (e) {
+        console.error("Error verificando sorteos expirados:", e);
+    }
+}, 60000); // Cada minuto
+
+// --- API SORTEOS ---
+
+// Obtener tickets del usuario
+app.get('/api/raffle/tickets/:userId', async (req, res) => {
+    try {
+        const result = await db.query(`SELECT cantidad FROM user_tickets WHERE user_id = $1`, [req.params.userId]);
+        const cantidad = result.rows[0]?.cantidad || 0;
+        res.json({ tickets: cantidad });
+    } catch (e) {
+        res.status(500).json({ error: 'Error obteniendo tickets' });
+    }
+});
+
+// Obtener sorteos activos (con mis participaciones si estoy logueado)
+app.get('/api/raffle/offers', async (req, res) => {
+    try {
+        const userId = req.signedCookies.userId;
+        const rafflesRes = await db.query(`
+            SELECT r.*, 
+                COALESCE(e.tickets_asignados, 0) as mis_tickets
+            FROM raffles r
+            LEFT JOIN raffle_entries e ON r.id = e.raffle_id AND e.user_id = $1
+            WHERE r.estado = 'activo'
+            ORDER BY r.fecha_limite ASC
+        `, [userId || 0]);
+        res.json(rafflesRes.rows);
+    } catch (e) {
+        res.status(500).json({ error: 'Error obteniendo sorteos' });
+    }
+});
+
+// Obtener todos los sorteos (incluye completados/expirados)
+app.get('/api/raffle/all', async (req, res) => {
+    try {
+        const userId = req.signedCookies.userId;
+        const rafflesRes = await db.query(`
+            SELECT r.*, 
+                COALESCE(e.tickets_asignados, 0) as mis_tickets
+            FROM raffles r
+            LEFT JOIN raffle_entries e ON r.id = e.raffle_id AND e.user_id = $1
+            ORDER BY r.fecha_creacion DESC
+            LIMIT 50
+        `, [userId || 0]);
+        res.json(rafflesRes.rows);
+    } catch (e) {
+        res.status(500).json({ error: 'Error obteniendo sorteos' });
+    }
+});
+
+// Participar en sorteo (agregar/quitar tickets)
+app.post('/api/raffle/participate', async (req, res) => {
+    try {
+        const { userId, raffleId, ticketsDelta } = req.body;
+        const delta = parseInt(ticketsDelta);
+
+        // Verificar que el sorteo está activo
+        const raffleRes = await db.query(`SELECT * FROM raffles WHERE id = $1 AND estado = 'activo'`, [raffleId]);
+        if (raffleRes.rows.length === 0) {
+            return res.status(400).json({ error: 'Sorteo no disponible' });
+        }
+        const raffle = raffleRes.rows[0];
+
+        // Obtener tickets actuales del usuario
+        const ticketsRes = await db.query(`SELECT cantidad FROM user_tickets WHERE user_id = $1`, [userId]);
+        const ticketsDisponibles = ticketsRes.rows[0]?.cantidad || 0;
+
+        // Obtener participación actual
+        const entryRes = await db.query(`SELECT tickets_asignados FROM raffle_entries WHERE raffle_id = $1 AND user_id = $2`, [raffleId, userId]);
+        const ticketsAsignadosActuales = entryRes.rows[0]?.tickets_asignados || 0;
+
+        // Calcular nuevo total de tickets asignados
+        const nuevoTotal = ticketsAsignadosActuales + delta;
+
+        // Validaciones
+        if (nuevoTotal < 0) {
+            return res.status(400).json({ error: 'No puedes quitar más tickets de los que tienes asignados' });
+        }
+        if (delta > 0 && ticketsDisponibles < delta) {
+            return res.status(400).json({ error: 'No tienes suficientes tickets disponibles' });
+        }
+
+        // Verificar que no se exceda el total del sorteo
+        const ticketsRestantes = raffle.tickets_necesarios - raffle.tickets_actuales;
+        if (delta > ticketsRestantes) {
+            return res.status(400).json({ error: `Solo quedan ${ticketsRestantes} espacios en este sorteo` });
+        }
+
+        // Actualizar tickets del usuario
+        if (delta > 0) {
+            await db.query(`UPDATE user_tickets SET cantidad = cantidad - $1 WHERE user_id = $2`, [delta, userId]);
+        } else if (delta < 0) {
+            await db.query(`
+                INSERT INTO user_tickets (user_id, cantidad) VALUES ($1, $2)
+                ON CONFLICT (user_id) DO UPDATE SET cantidad = user_tickets.cantidad + $2
+            `, [userId, Math.abs(delta)]);
+        }
+
+        // Actualizar o crear participación
+        if (nuevoTotal === 0) {
+            await db.query(`DELETE FROM raffle_entries WHERE raffle_id = $1 AND user_id = $2`, [raffleId, userId]);
+        } else {
+            await db.query(`
+                INSERT INTO raffle_entries (raffle_id, user_id, tickets_asignados) VALUES ($1, $2, $3)
+                ON CONFLICT (raffle_id, user_id) DO UPDATE SET tickets_asignados = $3
+            `, [raffleId, userId, nuevoTotal]);
+        }
+
+        // Actualizar total del sorteo
+        await db.query(`UPDATE raffles SET tickets_actuales = tickets_actuales + $1 WHERE id = $2`, [delta, raffleId]);
+
+        // Verificar si se completó el sorteo
+        const raffleUpdated = await db.query(`SELECT tickets_actuales, tickets_necesarios FROM raffles WHERE id = $1`, [raffleId]);
+        const rUpdated = raffleUpdated.rows[0];
+        if (rUpdated.tickets_actuales >= rUpdated.tickets_necesarios) {
+            // ¡Sorteo completo! Ejecutar
+            ejecutarSorteo(raffleId);
+        } else {
+            // Notificar actualización a todos
+            io.emit('sorteo_actualizado', {
+                raffleId: raffleId,
+                tickets_actuales: rUpdated.tickets_actuales
+            });
+        }
+
+        // Obtener tickets actualizados
+        const newTicketsRes = await db.query(`SELECT cantidad FROM user_tickets WHERE user_id = $1`, [userId]);
+
+        res.json({
+            success: true,
+            ticketsUsuario: newTicketsRes.rows[0]?.cantidad || 0,
+            misTicketsEnSorteo: nuevoTotal,
+            ticketsEnSorteo: rUpdated.tickets_actuales
+        });
+    } catch (e) {
+        console.error("Error participando en sorteo:", e);
+        res.status(500).json({ error: 'Error al participar' });
+    }
+});
+
+// --- ADMIN SORTEOS ---
+
+// Crear sorteo (admin)
+app.post('/api/admin/raffle/create', async (req, res) => {
+    try {
+        const { nombre, categoria, precio, duracionHoras } = req.body;
+
+        // Calcular tickets necesarios (redondeo al mayor)
+        const ticketsNecesarios = Math.ceil(precio / 1000);
+
+        // Calcular fecha límite
+        const fechaLimite = new Date(Date.now() + (duracionHoras * 60 * 60 * 1000));
+
+        const result = await db.query(`
+            INSERT INTO raffles (nombre, categoria, precio, tickets_necesarios, fecha_limite)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING *
+        `, [nombre, categoria, precio, ticketsNecesarios, fechaLimite]);
+
+        const nuevoSorteo = result.rows[0];
+
+        // Notificar a todos
+        io.emit('nuevo_sorteo', nuevoSorteo);
+
+        res.json({ success: true, sorteo: nuevoSorteo });
+    } catch (e) {
+        console.error("Error creando sorteo:", e);
+        res.status(500).json({ error: 'Error creando sorteo' });
+    }
+});
+
+// Eliminar sorteo (admin) - devuelve tickets
+app.delete('/api/admin/raffle/:id', async (req, res) => {
+    try {
+        const raffleId = req.params.id;
+
+        // Obtener participaciones y devolver tickets
+        const entriesRes = await db.query(`SELECT * FROM raffle_entries WHERE raffle_id = $1`, [raffleId]);
+        for (const entry of entriesRes.rows) {
+            await db.query(`
+                INSERT INTO user_tickets (user_id, cantidad) VALUES ($1, $2)
+                ON CONFLICT (user_id) DO UPDATE SET cantidad = user_tickets.cantidad + $2
+            `, [entry.user_id, entry.tickets_asignados]);
+        }
+
+        // Eliminar sorteo (cascade eliminará entries)
+        await db.query(`DELETE FROM raffles WHERE id = $1`, [raffleId]);
+
+        // Notificar a todos
+        io.emit('sorteo_eliminado', { raffleId: parseInt(raffleId) });
+
+        res.json({ success: true, message: 'Sorteo eliminado, tickets devueltos' });
+    } catch (e) {
+        console.error("Error eliminando sorteo:", e);
+        res.status(500).json({ error: 'Error eliminando sorteo' });
+    }
+});
+
+// Ver todos los sorteos (admin)
+app.get('/api/admin/raffles', async (req, res) => {
+    try {
+        const result = await db.query(`SELECT * FROM raffles ORDER BY fecha_creacion DESC`);
+        res.json(result.rows);
+    } catch (e) {
+        res.status(500).json({ error: 'Error obteniendo sorteos' });
+    }
 });
 
 
@@ -1372,6 +1628,14 @@ io.on('connection', (socket) => {
                             await db.query(`UPDATE users SET total_derrotas = total_derrotas + 1, derrotas_normales = derrotas_normales + 1, total_partidas = total_partidas + 1 WHERE id = $1`, [idPerdedor]);
 
                             await db.query(`INSERT INTO admin_wallet (monto, razon, detalle) VALUES ($1, $2, $3)`, [comision, 'comision_match', `Match #${match.dbId}`]);
+
+                            // Acumular tickets para ambos jugadores (1 ticket por cada 6000 apostados)
+                            for (const p of match.players) {
+                                const ticketsGanados = await acumularTickets(p.userData.id, match.apuesta);
+                                if (ticketsGanados > 0) {
+                                    p.emit('tickets_ganados', { cantidad: ticketsGanados });
+                                }
+                            }
 
                             // Actualizar saldo del ganador
                             if (winnerSocket) {

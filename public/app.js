@@ -350,6 +350,7 @@ document.addEventListener('DOMContentLoaded', () => {
         general: document.getElementById('view-general'),
         clash_chat: document.getElementById('view-clash-chat'),
         clash_logs: document.getElementById('view-clash-logs'),
+        sorteos: document.getElementById('view-sorteos'),
         private: document.getElementById('view-private'),
         game_result: document.getElementById('view-game-result')
     };
@@ -400,6 +401,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (btn) { document.querySelectorAll('.channel').forEach(c => c.classList.remove('active')); btn.classList.add('active'); }
         if (window.innerWidth <= 768) { if (sidebar) sidebar.classList.remove('open'); if (mobileOverlay) mobileOverlay.classList.remove('open'); }
+
+        // Cargar sorteos cuando se navega a esa vista
+        if (vistaName === 'sorteos' && currentUser) {
+            cargarSorteos();
+            // Mostrar controles admin si es admin
+            const adminControls = document.getElementById('sorteos-admin-controls');
+            if (adminControls) {
+                if (currentUser.tipo_suscripcion === 'admin') {
+                    adminControls.classList.remove('hidden');
+                } else {
+                    adminControls.classList.add('hidden');
+                }
+            }
+        }
 
         // Auto-scroll al final del chat cuando se muestra un canal
         // Usamos setTimeout para dar tiempo al DOM de renderizar
@@ -1365,6 +1380,298 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // --- SISTEMA DE SORTEOS ---
+
+    let userTickets = 0;
+    let sorteos = [];
+    let countdownInterval = null;
+
+    // Cargar sorteos desde el servidor
+    async function cargarSorteos() {
+        try {
+            // Cargar tickets del usuario
+            if (currentUser) {
+                const ticketsRes = await fetch(API_BASE_URL + `/api/raffle/tickets/${currentUser.id}`, { credentials: 'include' });
+                const ticketsData = await ticketsRes.json();
+                userTickets = ticketsData.tickets || 0;
+                document.getElementById('user-tickets-count').textContent = userTickets;
+            }
+
+            // Cargar sorteos activos
+            const res = await fetch(API_BASE_URL + '/api/raffle/offers', { credentials: 'include' });
+            sorteos = await res.json();
+            renderizarSorteos(sorteos);
+            iniciarCountdowns();
+        } catch (e) {
+            console.error("Error cargando sorteos:", e);
+        }
+    }
+
+    // Renderizar lista de sorteos
+    function renderizarSorteos(lista) {
+        const container = document.getElementById('sorteos-list');
+        if (!container) return;
+
+        if (lista.length === 0) {
+            container.innerHTML = '<p class="no-sorteos">No hay sorteos activos en este momento.<br>¡Juega partidas para ganar tickets!</p>';
+            return;
+        }
+
+        container.innerHTML = lista.map(sorteo => {
+            const progreso = Math.min(100, (sorteo.tickets_actuales / sorteo.tickets_necesarios) * 100);
+            const misTickets = sorteo.mis_tickets || 0;
+            const fechaLimite = new Date(sorteo.fecha_limite);
+            const esAdmin = currentUser && currentUser.tipo_suscripcion === 'admin';
+
+            // Categoría con emoji
+            const categoriasEmoji = {
+                'gemas': '💎', 'pass': '👑', 'evoluciones': '✨',
+                'emotes': '😄', 'cartas': '🃏', 'comodines': '🎴', 'especial': '🎁'
+            };
+            const emoji = categoriasEmoji[sorteo.categoria] || '🎁';
+
+            return `
+                <div class="sorteo-card nuevo" data-id="${sorteo.id}">
+                    <div class="sorteo-header">
+                        <div>
+                            <span class="sorteo-nombre">${emoji} ${sorteo.nombre}</span>
+                            <span class="sorteo-categoria">${sorteo.categoria}</span>
+                        </div>
+                        <span class="sorteo-precio">$${sorteo.precio.toLocaleString()}</span>
+                    </div>
+
+                    <div class="ticket-progress">
+                        <div class="ticket-progress-bar">
+                            <div class="ticket-progress-fill" style="width: ${progreso}%"></div>
+                            <span class="ticket-progress-text">${sorteo.tickets_actuales} / ${sorteo.tickets_necesarios} tickets</span>
+                        </div>
+                        <div class="ticket-info">
+                            <span class="sorteo-countdown" data-fecha="${sorteo.fecha_limite}">⏰ Cargando...</span>
+                            <span>Mis tickets: ${misTickets}</span>
+                        </div>
+                    </div>
+
+                    <div class="ticket-controls">
+                        <button class="ticket-btn minus" onclick="ajustarTickets(${sorteo.id}, -1)" ${misTickets <= 0 ? 'disabled' : ''}>−</button>
+                        <span class="my-tickets-count">${misTickets} 🎟️</span>
+                        <button class="ticket-btn plus" onclick="ajustarTickets(${sorteo.id}, 1)" ${userTickets <= 0 || sorteo.tickets_actuales >= sorteo.tickets_necesarios ? 'disabled' : ''}>+</button>
+                    </div>
+
+                    ${esAdmin ? `<button class="btn-eliminar-sorteo" onclick="eliminarSorteo(${sorteo.id})">🗑️ Eliminar</button>` : ''}
+                </div>
+            `;
+        }).join('');
+    }
+
+    // Iniciar countdowns
+    function iniciarCountdowns() {
+        if (countdownInterval) clearInterval(countdownInterval);
+        countdownInterval = setInterval(actualizarCountdowns, 1000);
+        actualizarCountdowns();
+    }
+
+    function actualizarCountdowns() {
+        document.querySelectorAll('.sorteo-countdown').forEach(el => {
+            const fecha = new Date(el.dataset.fecha);
+            const ahora = new Date();
+            const diff = fecha - ahora;
+
+            if (diff <= 0) {
+                el.textContent = '⏰ ¡Expirado!';
+                el.classList.add('urgente');
+                return;
+            }
+
+            const horas = Math.floor(diff / (1000 * 60 * 60));
+            const minutos = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            const segundos = Math.floor((diff % (1000 * 60)) / 1000);
+
+            if (horas > 0) {
+                el.textContent = `⏰ ${horas}h ${minutos}m`;
+            } else if (minutos > 0) {
+                el.textContent = `⏰ ${minutos}m ${segundos}s`;
+                if (minutos < 5) el.classList.add('urgente');
+            } else {
+                el.textContent = `⏰ ${segundos}s`;
+                el.classList.add('urgente');
+            }
+        });
+    }
+
+    // Ajustar tickets en un sorteo
+    window.ajustarTickets = async function (raffleId, delta) {
+        if (!currentUser) return alert("Debes iniciar sesión");
+
+        try {
+            const res = await fetch(API_BASE_URL + '/api/raffle/participate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    userId: currentUser.id,
+                    raffleId: raffleId,
+                    ticketsDelta: delta
+                })
+            });
+
+            const data = await res.json();
+            if (!res.ok) {
+                return alert(data.error || 'Error al participar');
+            }
+
+            // Actualizar UI
+            userTickets = data.ticketsUsuario;
+            document.getElementById('user-tickets-count').textContent = userTickets;
+
+            // Recargar sorteos para reflejar cambios
+            cargarSorteos();
+        } catch (e) {
+            console.error("Error participando en sorteo:", e);
+            alert("Error de conexión");
+        }
+    };
+
+    // Abrir modal crear sorteo (admin)
+    window.abrirModalCrearSorteo = function () {
+        document.getElementById('create-raffle-modal').classList.remove('hidden');
+    };
+
+    // Preview de tickets al cambiar precio
+    const rafflePrecioInput = document.getElementById('raffle-precio');
+    if (rafflePrecioInput) {
+        rafflePrecioInput.addEventListener('input', () => {
+            const precio = parseInt(rafflePrecioInput.value) || 0;
+            const tickets = Math.ceil(precio / 1000);
+            document.getElementById('raffle-tickets-preview').textContent = `Tickets necesarios: ${tickets}`;
+        });
+    }
+
+    // Formulario crear sorteo
+    const createRaffleForm = document.getElementById('create-raffle-form');
+    if (createRaffleForm) {
+        createRaffleForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const nombre = document.getElementById('raffle-nombre').value;
+            const categoria = document.getElementById('raffle-categoria').value;
+            const precio = parseInt(document.getElementById('raffle-precio').value);
+            const duracion = parseInt(document.getElementById('raffle-duracion').value);
+
+            if (!nombre || !precio || !duracion) return alert("Completa todos los campos");
+
+            try {
+                const res = await fetch(API_BASE_URL + '/api/admin/raffle/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ nombre, categoria, precio, duracionHoras: duracion })
+                });
+
+                const data = await res.json();
+                if (data.success) {
+                    alert(`✅ Sorteo "${nombre}" creado con ${data.sorteo.tickets_necesarios} tickets necesarios`);
+                    document.getElementById('create-raffle-modal').classList.add('hidden');
+                    createRaffleForm.reset();
+                    document.getElementById('raffle-tickets-preview').textContent = 'Tickets necesarios: 0';
+                    cargarSorteos();
+                } else {
+                    alert(data.error || 'Error creando sorteo');
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Error de conexión");
+            }
+        });
+    }
+
+    // Eliminar sorteo (admin)
+    window.eliminarSorteo = async function (id) {
+        if (!confirm("¿Eliminar este sorteo? Los tickets serán devueltos a los usuarios.")) return;
+
+        try {
+            const res = await fetch(API_BASE_URL + `/api/admin/raffle/${id}`, {
+                method: 'DELETE',
+                credentials: 'include'
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(data.message);
+                cargarSorteos();
+            } else {
+                alert(data.error);
+            }
+        } catch (e) {
+            alert("Error eliminando sorteo");
+        }
+    };
+
+    // Socket listeners para sorteos
+    socket.on('nuevo_sorteo', (sorteo) => {
+        console.log("🆕 Nuevo sorteo:", sorteo.nombre);
+        // Mostrar notificación toast
+        if (typeof mostrarToast === 'function') {
+            mostrarToast(`🎁 ¡Nuevo sorteo! <strong>${sorteo.nombre}</strong>`, 5000);
+        }
+        // Si está en la vista de sorteos, recargar
+        if (!views.sorteos.classList.contains('hidden')) {
+            cargarSorteos();
+        }
+    });
+
+    socket.on('sorteo_actualizado', (data) => {
+        console.log("📝 Sorteo actualizado:", data.raffleId);
+        // Si está en la vista de sorteos, recargar
+        if (!views.sorteos.classList.contains('hidden')) {
+            cargarSorteos();
+        }
+    });
+
+    socket.on('sorteo_ganador', (data) => {
+        console.log("🏆 Sorteo ganador:", data);
+        const esMio = currentUser && data.ganadorId === currentUser.id;
+
+        if (esMio) {
+            alert(`🏆 ¡FELICIDADES! ¡GANASTE "${data.nombre}"!\n\nTe contactaremos pronto para entregar tu premio.`);
+        } else {
+            if (typeof mostrarToast === 'function') {
+                mostrarToast(`🏆 <strong>${data.ganadorNombre}</strong> ganó "${data.nombre}"`, 8000);
+            }
+        }
+
+        // Recargar sorteos
+        if (!views.sorteos.classList.contains('hidden')) {
+            cargarSorteos();
+        }
+    });
+
+    socket.on('sorteo_expirado', (data) => {
+        console.log("⏰ Sorteo expirado:", data.nombre);
+        if (typeof mostrarToast === 'function') {
+            mostrarToast(`⏰ Sorteo expirado: "${data.nombre}". Tickets devueltos.`, 5000);
+        }
+        if (!views.sorteos.classList.contains('hidden')) {
+            cargarSorteos();
+        }
+    });
+
+    socket.on('sorteo_eliminado', (data) => {
+        console.log("🗑️ Sorteo eliminado:", data.raffleId);
+        if (!views.sorteos.classList.contains('hidden')) {
+            cargarSorteos();
+        }
+    });
+
+    // Listener para tickets ganados en partida
+    socket.on('tickets_ganados', (data) => {
+        console.log(`🎟️ Ganaste ${data.cantidad} ticket(s)`);
+        if (typeof mostrarToast === 'function') {
+            mostrarToast(`🎟️ ¡Ganaste <strong>${data.cantidad}</strong> ticket(s) para sorteos!`, 5000);
+        }
+        userTickets += data.cantidad;
+        const ticketDisplay = document.getElementById('user-tickets-count');
+        if (ticketDisplay) ticketDisplay.textContent = userTickets;
+    });
 
     // EXTRAS
     if (mobileMenuBtn) mobileMenuBtn.addEventListener('click', () => { sidebar.classList.toggle('open'); mobileOverlay.classList.toggle('open'); });

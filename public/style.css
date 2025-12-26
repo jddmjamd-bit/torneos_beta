@@ -1,5 +1,9 @@
 /* Reset básico */
-* { box-sizing: border-box; margin: 0; padding: 0; }
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
 
 body {
     background-color: #2f3136;
@@ -8,10 +12,12 @@ body {
 
     /* CORRECCIÓN SCROLL WOMPI: */
     /* Quitamos overflow: hidden del body para que Wompi pueda hacer scroll */
-    height: 100dvh; 
+    height: 100dvh;
     width: 100%;
-    position: relative; /* Cambiado de fixed a relative */
-    overflow: auto; /* Permitir scroll si es necesario (Wompi lo necesita) */
+    position: relative;
+    /* Cambiado de fixed a relative */
+    overflow: auto;
+    /* Permitir scroll si es necesario (Wompi lo necesita) */
 }
 
 /* Pantalla de Login */
@@ -21,60 +27,137 @@ body {
     align-items: center;
     height: 100dvh;
     width: 100%;
-    position: fixed; /* Fijamos esto para que no se mueva */
-    top: 0; left: 0;
-    overflow-y: auto; /* Scroll si el celular es muy pequeño */
+    position: fixed;
+    /* Fijamos esto para que no se mueva */
+    top: 0;
+    left: 0;
+    overflow-y: auto;
+    /* Scroll si el celular es muy pequeño */
 }
-.hidden { display: none !important; }
+
+.hidden {
+    display: none !important;
+}
 
 /* Layout Principal (El Chat) */
-.discord-layout { 
-    display: flex; 
-    height: 100dvh; 
-    width: 100%; 
-    position: fixed; /* Fijamos EL CHAT, no el body */
-    top: 0; left: 0;
-    overflow: hidden; /* El chat sí debe estar bloqueado */
+.discord-layout {
+    display: flex;
+    height: 100dvh;
+    width: 100%;
+    position: fixed;
+    /* Fijamos EL CHAT, no el body */
+    top: 0;
+    left: 0;
+    overflow: hidden;
+    /* El chat sí debe estar bloqueado */
 }
 
 /* CORRECCIÓN MODALES (Para que puedas deslizar si el teclado tapa) */
 .modal-content {
-    background: #36393f; 
-    width: 90%; 
+    background: #36393f;
+    width: 90%;
     max-width: 400px;
-    padding: 20px; 
-    border-radius: 10px; 
-    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
 
     /* Permitir scroll dentro del modal si es muy alto */
-    max-height: 90dvh; 
+    max-height: 90dvh;
     overflow-y: auto;
 }
 
 /* Formularios */
-.form-wrapper { background: #36393f; padding: 2rem; border-radius: 8px; width: 90%; max-width: 400px; text-align: center; }
-input { width: 100%; padding: 10px; margin: 10px 0; background: #202225; border: none; color: white; border-radius: 4px; }
-button { width: 100%; padding: 10px; background: #5865f2; color: white; border: none; border-radius: 4px; cursor: pointer; }
-a { color: #00b0f4; text-decoration: none; }
+.form-wrapper {
+    background: #36393f;
+    padding: 2rem;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 400px;
+    text-align: center;
+}
+
+input {
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+    background: #202225;
+    border: none;
+    color: white;
+    border-radius: 4px;
+}
+
+button {
+    width: 100%;
+    padding: 10px;
+    background: #5865f2;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+a {
+    color: #00b0f4;
+    text-decoration: none;
+}
 
 /* Layout Responsivo */
-.discord-layout { display: flex; height: 100dvh; width: 100%; position: relative; }
-.sidebar { width: 260px; background: #202225; display: flex; flex-direction: column; padding: 10px; flex-shrink: 0; transition: transform 0.3s ease; }
-.mobile-menu-btn { display: none; position: absolute; top: 10px; left: 10px; z-index: 200; background: #202225; color: white; border: 1px solid #40444b; padding: 10px; }
-.mobile-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 90; }
+.discord-layout {
+    display: flex;
+    height: 100dvh;
+    width: 100%;
+    position: relative;
+}
+
+.sidebar {
+    width: 260px;
+    background: #202225;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    flex-shrink: 0;
+    transition: transform 0.3s ease;
+}
+
+.mobile-menu-btn {
+    display: none;
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 200;
+    background: #202225;
+    color: white;
+    border: 1px solid #40444b;
+    padding: 10px;
+}
+
+.mobile-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 90;
+}
 
 @media (max-width: 768px) {
     /* --- REGLAS PARA CELULARES (Menos de 768px) --- */
 
     /* 1. Botón de Menú (Las 3 rayitas) */
-    .mobile-menu-btn { 
-        display: block; 
-        position: fixed; /* Fijo para que no se mueva al hacer scroll */
-        top: 10px; 
+    .mobile-menu-btn {
+        display: block;
+        position: fixed;
+        /* Fijo para que no se mueva al hacer scroll */
+        top: 10px;
         left: 10px;
-        z-index: 1001; /* Por encima de todo, incluso de la barra abierta */
-        background-color: #202225; /* Fondo oscuro para que no se mezcle */
-        box-shadow: 0 2px 5px rgba(0,0,0,0.5); /* Sombra para que resalte */
+        z-index: 1001;
+        /* Por encima de todo, incluso de la barra abierta */
+        background-color: #202225;
+        /* Fondo oscuro para que no se mezcle */
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+        /* Sombra para que resalte */
         width: 45px;
         height: 45px;
         display: flex;
@@ -84,17 +167,20 @@ a { color: #00b0f4; text-decoration: none; }
 
     /* 2. La Barra Lateral (El Menú) */
     .sidebar {
-        position: fixed; /* Fija para tapar el contenido */
+        position: fixed;
+        /* Fija para tapar el contenido */
         top: 0;
         left: 0;
         height: 100%;
-        width: 85%; /* Ocupa el 85% del ancho, deja ver un borde para cerrar */
+        width: 85%;
+        /* Ocupa el 85% del ancho, deja ver un borde para cerrar */
         max-width: 300px;
-        transform: translateX(-100%); /* Escondida a la izquierda */
-        box-shadow: 5px 0 15px rgba(0,0,0,0.5);
+        transform: translateX(-100%);
+        /* Escondida a la izquierda */
+        box-shadow: 5px 0 15px rgba(0, 0, 0, 0.5);
         z-index: 1000;
         /* AQUÍ ESTÁ LA MAGIA: Bajamos el contenido para que no lo tape el botón */
-        padding-top: 70px; 
+        padding-top: 70px;
     }
 
     /* Cuando la barra está abierta */
@@ -105,108 +191,373 @@ a { color: #00b0f4; text-decoration: none; }
     /* 3. El Header del Chat (Donde están los títulos) */
     .chat-header {
         /* Empujamos todo 80px a la derecha para que el botón NO toque el texto */
-        padding-left: 80px !important; 
+        padding-left: 80px !important;
         padding-right: 10px;
 
         /* Aseguramos que el flexbox centre verticalmente pero respete el inicio horizontal */
         display: flex;
         align-items: center;
-        justify-content: flex-start; /* Alinea el texto a la izquierda del espacio disponible */
+        justify-content: flex-start;
+        /* Alinea el texto a la izquierda del espacio disponible */
 
         height: 60px;
         width: 100%;
-        box-sizing: border-box; /* Para que el padding no agrande el ancho total */
+        box-sizing: border-box;
+        /* Para que el padding no agrande el ancho total */
     }
 
     /* Ajuste extra para el texto del título */
     .chat-header h3 {
-        font-size: 1rem; /* Letra legible en móvil */
-        white-space: nowrap; /* Que no se parta en dos líneas */
-        overflow: hidden; /* Si es muy largo, que no se salga */
-        text-overflow: ellipsis; /* Pone '...' si es muy largo */
+        font-size: 1rem;
+        /* Letra legible en móvil */
+        white-space: nowrap;
+        /* Que no se parta en dos líneas */
+        overflow: hidden;
+        /* Si es muy largo, que no se salga */
+        text-overflow: ellipsis;
+        /* Pone '...' si es muy largo */
         margin: 0;
     }
 
     /* Ajuste para cuando hay botones en el header (como Jugar o Salir) */
     .flex-header {
-        justify-content: space-between; /* Separa título y botón derecho */
+        justify-content: space-between;
+        /* Separa título y botón derecho */
     }
 
     /* 4. Ajustes para el Botón de Jugar en celular */
     .flash-btn-small {
         padding: 5px 12px;
         font-size: 0.8rem;
-        white-space: nowrap; /* Que no se parta el texto en dos líneas */
+        white-space: nowrap;
+        /* Que no se parta el texto en dos líneas */
     }
 
     /* 5. El Fondo Oscuro (Overlay) */
     .mobile-overlay {
-        z-index: 999; /* Justo debajo de la barra */
+        z-index: 999;
+        /* Justo debajo de la barra */
     }
-    .mobile-overlay.open { display: block; }
+
+    .mobile-overlay.open {
+        display: block;
+    }
 }
 
 /* Resto estilos... */
-.profile-box { background: #292b2f; padding: 10px; border-radius: 5px; margin-bottom: 20px; }
-.money { color: #43b581; font-weight: bold; }
-.mini-btn { background: #43b581; font-size: 0.8rem; margin-top: 5px; }
-.channel { padding: 8px; cursor: pointer; color: #8e9297; border-radius: 4px; margin-bottom: 2px; }
-.channel:hover { background: #34373c; color: #dcddde; }
-.channel.active { background: #393c43; color: white; }
-.category { font-weight: bold; color: #fff; margin-top: 15px; font-size: 0.8rem; }
-.category-title { display: flex; justify-content: space-between; }
-.submenu { margin-left: 10px; border-left: 2px solid #36393f; }
-.sub-channel { padding-left: 15px; font-size: 0.9rem; }
-.logout-btn { background: #ed4245; margin-top: auto; }
-.chat-area { flex: 1; background: #36393f; display: flex; flex-direction: column; }
-.chat-header { padding: 15px; border-bottom: 1px solid #202225; font-weight: bold; height: 60px; display: flex; align-items: center; }
-.flex-header { justify-content: space-between; }
-.messages-container { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 5px; }
-.date-separator { align-self: center; background-color: #202225; color: #8e9297; font-size: 0.75rem; padding: 5px 12px; border-radius: 20px; margin: 10px 0; }
-.msg { max-width: 70%; padding: 8px 12px; border-radius: 10px; display: flex; flex-direction: column; position: relative; }
-.msg.other { align-self: flex-start; background-color: #40444b; color: #dcddde; border-bottom-left-radius: 0; }
-.msg.own { align-self: flex-end; background-color: #00b0f4; color: white; border-bottom-right-radius: 0; }
-.msg-user { font-size: 0.7rem; font-weight: bold; margin-bottom: 2px; }
-.msg.own .msg-user { display: none; }
-.msg-time { font-size: 0.65rem; align-self: flex-end; margin-top: 4px; opacity: 0.7; }
-.msg.system { align-self: center; background: transparent; color: #8e9297; text-align: center; font-style: italic; }
-.chat-input-area { padding: 20px; background: #36393f; display: flex; gap: 10px; border-top: 1px solid #26272d; }
-.file-btn { background: #202225; color: #dcddde; padding: 10px 20px; border-radius: 4px; cursor: pointer; border: 1px solid #40444b; }
-.send-pic-btn { background: #43b581; width: auto; }
-.icon-btn { background: transparent; color: #b9bbbe; font-size: 1.2rem; cursor: pointer; padding: 5px; }
-.file-preview { background: #2f3136; color: #e94560; padding: 5px 20px; font-size: 0.8rem; border-top: 1px solid #e94560; }
-.chat-image { max-width: 100%; max-height: 300px; border-radius: 5px; margin-top: 5px; cursor: pointer; }
-.chat-video { max-width: 100%; border-radius: 5px; margin-top: 5px; }
-.view-section { display: flex; flex-direction: column; height: 100%; }
-.view-section.hidden { display: none; }
-.private-room-content { padding: 20px; display: flex; flex-direction: column; height: 100%; }
-.mini-chat { flex: 1; background: #2f3136; border-radius: 5px; padding: 10px; overflow-y: auto; }
-.negotiation-controls { display: flex; gap: 10px; }
-.status-indicator { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: #b9bbbe; margin-bottom: 5px; background: rgba(0,0,0,0.2); padding: 4px 8px; border-radius: 10px; width: fit-content; }
-.status-dot { width: 8px; height: 8px; border-radius: 50%; background-color: gray; display: inline-block; }
-.status-normal .status-dot { background-color: #43b581;box-shadow: 0 0 5px #43b581; } 
-.status-buscando .status-dot { background-color: #faa61a; animation: parpadeo 1s infinite; } 
-.status-jugando .status-dot { background-color: #f04747; } 
-@keyframes parpadeo { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+.profile-box {
+    background: #292b2f;
+    padding: 10px;
+    border-radius: 5px;
+    margin-bottom: 20px;
+}
+
+.money {
+    color: #43b581;
+    font-weight: bold;
+}
+
+.mini-btn {
+    background: #43b581;
+    font-size: 0.8rem;
+    margin-top: 5px;
+}
+
+.channel {
+    padding: 8px;
+    cursor: pointer;
+    color: #8e9297;
+    border-radius: 4px;
+    margin-bottom: 2px;
+}
+
+.channel:hover {
+    background: #34373c;
+    color: #dcddde;
+}
+
+.channel.active {
+    background: #393c43;
+    color: white;
+}
+
+.category {
+    font-weight: bold;
+    color: #fff;
+    margin-top: 15px;
+    font-size: 0.8rem;
+}
+
+.category-title {
+    display: flex;
+    justify-content: space-between;
+}
+
+.submenu {
+    margin-left: 10px;
+    border-left: 2px solid #36393f;
+}
+
+.sub-channel {
+    padding-left: 15px;
+    font-size: 0.9rem;
+}
+
+.logout-btn {
+    background: #ed4245;
+    margin-top: auto;
+}
+
+.chat-area {
+    flex: 1;
+    background: #36393f;
+    display: flex;
+    flex-direction: column;
+}
+
+.chat-header {
+    padding: 15px;
+    border-bottom: 1px solid #202225;
+    font-weight: bold;
+    height: 60px;
+    display: flex;
+    align-items: center;
+}
+
+.flex-header {
+    justify-content: space-between;
+}
+
+.messages-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.date-separator {
+    align-self: center;
+    background-color: #202225;
+    color: #8e9297;
+    font-size: 0.75rem;
+    padding: 5px 12px;
+    border-radius: 20px;
+    margin: 10px 0;
+}
+
+.msg {
+    max-width: 70%;
+    padding: 8px 12px;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+.msg.other {
+    align-self: flex-start;
+    background-color: #40444b;
+    color: #dcddde;
+    border-bottom-left-radius: 0;
+}
+
+.msg.own {
+    align-self: flex-end;
+    background-color: #00b0f4;
+    color: white;
+    border-bottom-right-radius: 0;
+}
+
+.msg-user {
+    font-size: 0.7rem;
+    font-weight: bold;
+    margin-bottom: 2px;
+}
+
+.msg.own .msg-user {
+    display: none;
+}
+
+.msg-time {
+    font-size: 0.65rem;
+    align-self: flex-end;
+    margin-top: 4px;
+    opacity: 0.7;
+}
+
+.msg.system {
+    align-self: center;
+    background: transparent;
+    color: #8e9297;
+    text-align: center;
+    font-style: italic;
+}
+
+.chat-input-area {
+    padding: 20px;
+    background: #36393f;
+    display: flex;
+    gap: 10px;
+    border-top: 1px solid #26272d;
+}
+
+.file-btn {
+    background: #202225;
+    color: #dcddde;
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid #40444b;
+}
+
+.send-pic-btn {
+    background: #43b581;
+    width: auto;
+}
+
+.icon-btn {
+    background: transparent;
+    color: #b9bbbe;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 5px;
+}
+
+.file-preview {
+    background: #2f3136;
+    color: #e94560;
+    padding: 5px 20px;
+    font-size: 0.8rem;
+    border-top: 1px solid #e94560;
+}
+
+.chat-image {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 5px;
+    margin-top: 5px;
+    cursor: pointer;
+}
+
+.chat-video {
+    max-width: 100%;
+    border-radius: 5px;
+    margin-top: 5px;
+}
+
+.view-section {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.view-section.hidden {
+    display: none;
+}
+
+.private-room-content {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.mini-chat {
+    flex: 1;
+    background: #2f3136;
+    border-radius: 5px;
+    padding: 10px;
+    overflow-y: auto;
+}
+
+.negotiation-controls {
+    display: flex;
+    gap: 10px;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    color: #b9bbbe;
+    margin-bottom: 5px;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 4px 8px;
+    border-radius: 10px;
+    width: fit-content;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: gray;
+    display: inline-block;
+}
+
+.status-normal .status-dot {
+    background-color: #43b581;
+    box-shadow: 0 0 5px #43b581;
+}
+
+.status-buscando .status-dot {
+    background-color: #faa61a;
+    animation: parpadeo 1s infinite;
+}
+
+.status-jugando .status-dot {
+    background-color: #f04747;
+}
+
+@keyframes parpadeo {
+    0% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.4;
+    }
+
+    100% {
+        opacity: 1;
+    }
+}
 
 /* --- BOTÓN FLASH NORMAL (ROJO) --- */
-.flash-btn-small { 
-    background: #e94560; color: white; padding: 8px 15px; border-radius: 20px; font-size: 0.9rem; 
-    border: 1px solid #ff7b90; cursor: pointer; transition: 0.2s;
+.flash-btn-small {
+    background: #e94560;
+    color: white;
+    padding: 8px 15px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    border: 1px solid #ff7b90;
+    cursor: pointer;
+    transition: 0.2s;
 }
-.flash-btn-small:hover { transform: scale(1.05); background: #c12c45; }
+
+.flash-btn-small:hover {
+    transform: scale(1.05);
+    background: #c12c45;
+}
 
 /* --- BOTÓN CANCELAR (GRIS/AMARILLO) --- */
 .flash-btn-small.btn-cancelar {
     background: #202225;
     border: 1px solid #faa61a;
     color: #faa61a;
-    animation: parpadeo 1.5s infinite; /* Parpadea suavemente */
+    animation: parpadeo 1.5s infinite;
+    /* Parpadea suavemente */
 }
+
 .flash-btn-small.btn-cancelar:hover {
     background: #2f3136;
-    content: "CANCELAR"; /* Opcional */
+    content: "CANCELAR";
+    /* Opcional */
 }
+
 .icon-btn-danger {
     background: transparent;
     border: 2px solid #ed4245;
@@ -225,13 +576,16 @@ a { color: #00b0f4; text-decoration: none; }
 .icon-btn-danger:hover {
     background: #ed4245;
     color: white;
-    transform: rotate(90deg); /* Efecto de giro al pasar el mouse */
+    transform: rotate(90deg);
+    /* Efecto de giro al pasar el mouse */
 }
 
 /* ESTILO PARA MENSAJES DE REGISTRO (LOGS) */
 .log-msg {
-    align-self: center; /* Centrado horizontalmente */
-    background-color: #72767d; /* Gris claro (visible en modo oscuro) */
+    align-self: center;
+    /* Centrado horizontalmente */
+    background-color: #72767d;
+    /* Gris claro (visible en modo oscuro) */
     color: white;
     font-weight: bold;
     text-align: center;
@@ -239,8 +593,9 @@ a { color: #00b0f4; text-decoration: none; }
     border-radius: 20px;
     margin: 5px 0;
     font-size: 0.85rem;
-    width: 90%; /* Ocupa casi todo el ancho */
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    width: 90%;
+    /* Ocupa casi todo el ancho */
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
     display: flex;
     justify-content: center;
     gap: 10px;
@@ -255,7 +610,8 @@ a { color: #00b0f4; text-decoration: none; }
 
 /* ESTILOS NEGOCIACIÓN */
 .match-info {
-    text-align: center; margin-bottom: 10px;
+    text-align: center;
+    margin-bottom: 10px;
 }
 
 .negotiation-box {
@@ -266,23 +622,38 @@ a { color: #00b0f4; text-decoration: none; }
 }
 
 .negotiation-box h4 {
-    margin-top: 0; color: #dcddde; border-bottom: 1px solid #40444b; padding-bottom: 10px; margin-bottom: 15px;
+    margin-top: 0;
+    color: #dcddde;
+    border-bottom: 1px solid #40444b;
+    padding-bottom: 10px;
+    margin-bottom: 15px;
 }
 
 .inputs-row {
-    display: flex; gap: 10px; margin-bottom: 10px;
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
 }
 
 .input-group {
-    flex: 1; display: flex; flex-direction: column; text-align: left;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    text-align: left;
 }
 
 .input-group label {
-    font-size: 0.8rem; color: #b9bbbe; margin-bottom: 5px;
+    font-size: 0.8rem;
+    color: #b9bbbe;
+    margin-bottom: 5px;
 }
 
 .validation-error {
-    color: #ed4245; font-size: 0.85rem; min-height: 1.2em; text-align: center; margin-bottom: 10px;
+    color: #ed4245;
+    font-size: 0.85rem;
+    min-height: 1.2em;
+    text-align: center;
+    margin-bottom: 10px;
 }
 
 /* Botón Comenzar */
@@ -296,7 +667,8 @@ a { color: #00b0f4; text-decoration: none; }
     border: none;
     border-radius: 5px;
     cursor: pointer;
-    opacity: 0.5; /* Deshabilitado por defecto */
+    opacity: 0.5;
+    /* Deshabilitado por defecto */
     pointer-events: none;
     transition: 0.3s;
 }
@@ -332,7 +704,10 @@ a { color: #00b0f4; text-decoration: none; }
     transition: 0.2s;
 }
 
-.res-btn:hover { opacity: 1; transform: scale(1.05); }
+.res-btn:hover {
+    opacity: 1;
+    transform: scale(1.05);
+}
 
 .res-btn.win.selected {
     background: #43b581;
@@ -358,7 +733,12 @@ a { color: #00b0f4; text-decoration: none; }
     border: none;
     cursor: pointer;
 }
-.confirm-btn:disabled { background: #40444b; cursor: not-allowed; opacity: 0.5; }
+
+.confirm-btn:disabled {
+    background: #40444b;
+    cursor: not-allowed;
+    opacity: 0.5;
+}
 
 /* ALERTA BLOQUEO */
 .alert-box {
@@ -373,41 +753,131 @@ a { color: #00b0f4; text-decoration: none; }
 
 /* MODAL OVERLAY */
 .modal-overlay {
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0,0,0,0.8); z-index: 1000;
-    display: flex; justify-content: center; align-items: center;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 1000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
 .modal-content {
-    background: #36393f; width: 90%; max-width: 400px;
-    padding: 20px; border-radius: 10px; box-shadow: 0 0 20px rgba(0,0,0,0.5);
+    background: #36393f;
+    width: 90%;
+    max-width: 400px;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
 }
-.modal-content.large { max-width: 600px; }
 
-.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.close-btn { background: transparent; font-size: 1.5rem; width: auto; padding: 0; }
+.modal-content.large {
+    max-width: 600px;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.close-btn {
+    background: transparent;
+    font-size: 1.5rem;
+    width: auto;
+    padding: 0;
+}
 
 /* TABS DEPOSITO */
-.deposit-tabs { display: flex; gap: 10px; margin-bottom: 20px; }
-.tab-btn { background: #202225; flex: 1; padding: 10px; border: 1px solid #40444b; color: #bbb; }
-.tab-btn.active { background: #5865f2; color: white; border-color: #5865f2; font-weight: bold; }
+.deposit-tabs {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+}
 
-.deposit-section { text-align: center; }
-.info-text { color: #dcddde; font-size: 0.9rem; margin-bottom: 15px; line-height: 1.4; }
-.deposit-action-btn { background: #43b581; margin-top: 10px; font-weight: bold; }
+.tab-btn {
+    background: #202225;
+    flex: 1;
+    padding: 10px;
+    border: 1px solid #40444b;
+    color: #bbb;
+}
+
+.tab-btn.active {
+    background: #5865f2;
+    color: white;
+    border-color: #5865f2;
+    font-weight: bold;
+}
+
+.deposit-section {
+    text-align: center;
+}
+
+.info-text {
+    color: #dcddde;
+    font-size: 0.9rem;
+    margin-bottom: 15px;
+    line-height: 1.4;
+}
+
+.deposit-action-btn {
+    background: #43b581;
+    margin-top: 10px;
+    font-weight: bold;
+}
 
 /* LISTA ADMIN */
 .admin-transactions-list {
-    max-height: 300px; overflow-y: auto; background: #202225; padding: 10px; border-radius: 5px;
+    max-height: 300px;
+    overflow-y: auto;
+    background: #202225;
+    padding: 10px;
+    border-radius: 5px;
 }
+
 .trans-item {
-    background: #2f3136; padding: 10px; margin-bottom: 5px; border-radius: 5px; display: flex; justify-content: space-between; align-items: center;
+    background: #2f3136;
+    padding: 10px;
+    margin-bottom: 5px;
+    border-radius: 5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
-.trans-info { font-size: 0.85rem; }
-.trans-actions { display: flex; gap: 5px; }
-.btn-approve { background: #43b581; width: auto; padding: 5px 10px; font-size: 0.8rem; }
-.btn-reject { background: #ed4245; width: auto; padding: 5px 10px; font-size: 0.8rem; }
-.admin-btn { background: #faa61a; color: black; margin-top: 5px; }
+
+.trans-info {
+    font-size: 0.85rem;
+}
+
+.trans-actions {
+    display: flex;
+    gap: 5px;
+}
+
+.btn-approve {
+    background: #43b581;
+    width: auto;
+    padding: 5px 10px;
+    font-size: 0.8rem;
+}
+
+.btn-reject {
+    background: #ed4245;
+    width: auto;
+    padding: 5px 10px;
+    font-size: 0.8rem;
+}
+
+.admin-btn {
+    background: #faa61a;
+    color: black;
+    margin-top: 5px;
+}
 
 /* ESTILOS CALCULADORA WOMPI */
 .calc-box {
@@ -458,8 +928,9 @@ a { color: #00b0f4; text-decoration: none; }
 }
 
 /* Si el formulario está oculto, que la lista crezca */
-#view-clash_pics form.hidden + .messages-container {
-    border-bottom: none; /* Quitar borde si lo hubiera */
+#view-clash_pics form.hidden+.messages-container {
+    border-bottom: none;
+    /* Quitar borde si lo hubiera */
 }
 
 /* Opcional: Un mensaje de "Solo lectura" si quisieras ponerlo */
@@ -497,7 +968,8 @@ a { color: #00b0f4; text-decoration: none; }
 
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr); /* 3 Columnas */
+    grid-template-columns: repeat(3, 1fr);
+    /* 3 Columnas */
     gap: 8px;
     font-size: 0.75rem;
     background: #202225;
@@ -512,13 +984,29 @@ a { color: #00b0f4; text-decoration: none; }
     text-align: center;
 }
 
-.stat-label { color: #888; font-size: 0.65rem; margin-bottom: 2px; }
-.stat-val { font-weight: bold; color: #dcddde; }
+.stat-label {
+    color: #888;
+    font-size: 0.65rem;
+    margin-bottom: 2px;
+}
+
+.stat-val {
+    font-weight: bold;
+    color: #dcddde;
+}
 
 /* Colores específicos para datos */
-.val-green { color: #43b581; }
-.val-red { color: #ed4245; }
-.val-gold { color: #faa61a; }
+.val-green {
+    color: #43b581;
+}
+
+.val-red {
+    color: #ed4245;
+}
+
+.val-gold {
+    color: #faa61a;
+}
 
 /* Estadísticas Rival */
 .rival-stats-box {
@@ -526,22 +1014,314 @@ a { color: #00b0f4; text-decoration: none; }
     justify-content: center;
     gap: 15px;
     font-size: 0.85rem;
-    background: rgba(0,0,0,0.3);
+    background: rgba(0, 0, 0, 0.3);
     padding: 5px 10px;
     border-radius: 15px;
     margin: 5px auto;
     width: fit-content;
 }
-.rival-stats-box span { color: #bbb; font-weight: bold; }
+
+.rival-stats-box span {
+    color: #bbb;
+    font-weight: bold;
+}
 
 /* ESTILO PARA LINKS EN EL CHAT */
 .chat-link {
-    color: #00b0f4; /* Azul brillante */
+    color: #00b0f4;
+    /* Azul brillante */
     text-decoration: underline;
-    word-break: break-all; /* Si el link es larguísimo, que baje de línea */
+    word-break: break-all;
+    /* Si el link es larguísimo, que baje de línea */
     cursor: pointer;
 }
 
 .chat-link:hover {
-    color: #43b581; /* Se pone verde al pasar el mouse */
+    color: #43b581;
+    /* Se pone verde al pasar el mouse */
+}
+
+/* --- SISTEMA DE SORTEOS --- */
+
+/* Mostrar tickets del usuario */
+.tickets-display {
+    background: linear-gradient(135deg, #5865f2, #3ba55c);
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: bold;
+}
+
+.tickets-display strong {
+    color: #ffd700;
+}
+
+/* Controles Admin Sorteos */
+.sorteos-admin-controls {
+    padding: 10px 20px;
+    background: #2f3136;
+    border-bottom: 1px solid #202225;
+}
+
+.btn-crear-sorteo {
+    background: linear-gradient(135deg, #5865f2, #7289da);
+    border: none;
+    padding: 10px 20px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    border-radius: 5px;
+    font-weight: bold;
+}
+
+.btn-crear-sorteo:hover {
+    transform: scale(1.02);
+    box-shadow: 0 0 10px rgba(88, 101, 242, 0.5);
+}
+
+/* Contenedor de sorteos */
+.sorteos-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+/* Tarjeta de sorteo */
+.sorteo-card {
+    background: linear-gradient(145deg, #2f3136, #36393f);
+    border: 1px solid #40444b;
+    border-radius: 12px;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    transition: 0.3s;
+}
+
+.sorteo-card:hover {
+    border-color: #5865f2;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.sorteo-card.sorteo-ganador {
+    border-color: #43b581;
+    background: linear-gradient(145deg, #1a3a2b, #2d4f3d);
+}
+
+.sorteo-card.sorteo-expirado {
+    opacity: 0.6;
+    border-color: #72767d;
+}
+
+.sorteo-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.sorteo-nombre {
+    font-size: 1.1rem;
+    font-weight: bold;
+    color: #fff;
+}
+
+.sorteo-categoria {
+    font-size: 0.75rem;
+    background: #202225;
+    padding: 3px 8px;
+    border-radius: 10px;
+    color: #b9bbbe;
+}
+
+.sorteo-precio {
+    color: #43b581;
+    font-weight: bold;
+    font-size: 0.9rem;
+}
+
+/* Barra de progreso de tickets */
+.ticket-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.ticket-progress-bar {
+    height: 20px;
+    background: #202225;
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+}
+
+.ticket-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #5865f2, #43b581);
+    transition: width 0.5s ease;
+    border-radius: 10px;
+}
+
+.ticket-progress-text {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: bold;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.ticket-info {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: #b9bbbe;
+}
+
+/* Botones +/- para asignar tickets */
+.ticket-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+}
+
+.ticket-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    font-size: 1.3rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ticket-btn.plus {
+    background: #43b581;
+    border: 2px solid #3ba55c;
+    color: white;
+}
+
+.ticket-btn.plus:hover {
+    background: #3ba55c;
+    transform: scale(1.1);
+}
+
+.ticket-btn.minus {
+    background: #ed4245;
+    border: 2px solid #c04146;
+    color: white;
+}
+
+.ticket-btn.minus:hover {
+    background: #c04146;
+    transform: scale(1.1);
+}
+
+.ticket-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.my-tickets-count {
+    font-size: 1.2rem;
+    font-weight: bold;
+    min-width: 50px;
+    text-align: center;
+    color: #ffd700;
+}
+
+/* Countdown timer */
+.sorteo-countdown {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: #faa61a;
+}
+
+.sorteo-countdown.urgente {
+    color: #ed4245;
+    animation: parpadeo 1s infinite;
+}
+
+/* Estado ganador */
+.sorteo-ganador-info {
+    background: #43b581;
+    color: white;
+    padding: 10px;
+    border-radius: 8px;
+    text-align: center;
+    font-weight: bold;
+}
+
+/* Admin: Botón eliminar sorteo */
+.btn-eliminar-sorteo {
+    background: transparent;
+    border: 1px solid #ed4245;
+    color: #ed4245;
+    padding: 5px 10px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    border-radius: 5px;
+}
+
+.btn-eliminar-sorteo:hover {
+    background: #ed4245;
+    color: white;
+}
+
+/* Mensaje cuando no hay sorteos */
+.no-sorteos {
+    text-align: center;
+    color: #72767d;
+    padding: 40px;
+    font-style: italic;
+}
+
+/* Animación para sorteo nuevo */
+@keyframes nuevoSorteo {
+    0% {
+        transform: scale(0.9);
+        opacity: 0;
+    }
+
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+.sorteo-card.nuevo {
+    animation: nuevoSorteo 0.4s ease;
+}
+
+/* Responsive sorteos */
+@media (max-width: 768px) {
+    .ticket-controls {
+        gap: 10px;
+    }
+
+    .ticket-btn {
+        width: 35px;
+        height: 35px;
+        font-size: 1.1rem;
+    }
+
+    .sorteo-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+    }
 }
