@@ -835,6 +835,64 @@ io.on('connection', (socket) => {
                 historial: msgs.rows
             });
         }
+
+        // Reconexión con estado buscando_partida - re-agregar a la cola
+        else if (user.estado === 'buscando_partida') {
+            console.log(`🔄 ${user.username} reconectó buscando partida - re-agregando a cola`);
+
+            // Actualizar búsqueda activa con el nuevo socket si existe
+            if (busquedasActivas[user.id]) {
+                busquedasActivas[user.id].socket = socket;
+                busquedasActivas[user.id].disconnected = false;
+                socket.busquedaNotifId = busquedasActivas[user.id].notifId;
+            }
+
+            // Re-agregar a la cola si no está ya
+            if (!colaEsperaClash.find(s => s.userData?.id === user.id)) {
+                colaEsperaClash.push(socket);
+            }
+
+            // Intentar matcheo inmediato
+            colaEsperaClash = colaEsperaClash.filter(s => s.connected);
+
+            if (colaEsperaClash.length >= 2) {
+                const j1 = colaEsperaClash.shift();
+                const j2 = colaEsperaClash.shift();
+
+                if (j1.connected && j2.connected) {
+                    const salaId = 'sala_' + Date.now();
+
+                    j1.currentRoom = salaId; j2.currentRoom = salaId;
+                    j1.join(salaId); j2.join(salaId);
+                    activeMatches[salaId] = { players: [j1, j2], apuesta: 0, iniciado: false };
+
+                    const maxAp = Math.min(parseFloat(j1.userData.saldo), parseFloat(j2.userData.saldo));
+                    await db.query(`UPDATE users SET estado = 'partida_encontrada', sala_actual = $1 WHERE id IN ($2, $3)`,
+                        [salaId, j1.userData.id, j2.userData.id]);
+
+                    logClash(`⚔️ MATCH (reconexión): ${j1.userData.username} vs ${j2.userData.username}`);
+                    io.to(salaId).emit('partida_encontrada', { salaId, p1: j1.userData, p2: j2.userData, maxApuesta: maxAp });
+
+                    // Limpiar búsquedas activas de ambos jugadores
+                    for (const player of [j1, j2]) {
+                        const busqueda = busquedasActivas[player.userData.id];
+                        if (busqueda) {
+                            clearTimeout(busqueda.timeoutId);
+                            eliminarNotificacion(busqueda.notifId);
+                            io.emit('busqueda_cancelada', { oderId: player.userData.id, username: player.userData.username });
+                            delete busquedasActivas[player.userData.id];
+                        }
+                    }
+                } else {
+                    // Re-agregar conectados a la cola
+                    if (j1.connected) colaEsperaClash.unshift(j1);
+                    if (j2.connected) colaEsperaClash.unshift(j2);
+                }
+            }
+
+            // Notificar al cliente que sigue buscando
+            socket.emit('buscando_activo', { mensaje: 'Sigues buscando partida...' });
+        }
     });
 
     // HISTORIAL GENERAL
@@ -940,48 +998,111 @@ io.on('connection', (socket) => {
 
         if (colaEsperaClash.length === 1) logClash(`🔍 ${row.username} busca...`);
 
-        // MATCHEO - solo con sockets conectados
-        // Filtrar sockets desconectados de la cola primero
-        colaEsperaClash = colaEsperaClash.filter(s => s.connected);
+        // MATCHEO - ahora permite matchear con usuarios cuya búsqueda está activa (aunque estén offline)
+        // Buscar en busquedasActivas si hay alguien más buscando (diferente a mí)
+        const miId = usuario.id;
+        let rivalBusqueda = null;
+        let rivalId = null;
 
-        if (colaEsperaClash.length >= 2) {
-            const j1 = colaEsperaClash.shift();
-            const j2 = colaEsperaClash.shift();
+        for (const oderId in busquedasActivas) {
+            if (parseInt(oderId) !== miId) {
+                rivalBusqueda = busquedasActivas[oderId];
+                rivalId = parseInt(oderId);
+                break;
+            }
+        }
 
-            // Verificar que ambos sockets estén conectados
-            if (!j1.connected || !j2.connected) {
-                // Re-agregar el conectado a la cola
-                if (j1.connected) colaEsperaClash.unshift(j1);
-                if (j2.connected) colaEsperaClash.unshift(j2);
-                console.log("⚠️ Matcheo cancelado - uno o ambos jugadores desconectados");
-                return;
+        if (rivalBusqueda) {
+            // Hay alguien buscando - hacer match
+            const salaId = 'sala_' + Date.now();
+            const rivalSocket = rivalBusqueda.socket;
+            const rivalConectado = rivalSocket && rivalSocket.connected;
+
+            console.log(`⚔️ Matcheo encontrado: ${row.username} vs ${rivalBusqueda.username} (rival ${rivalConectado ? 'online' : 'offline'})`);
+
+            // Mi socket
+            socket.currentRoom = salaId;
+            socket.join(salaId);
+
+            // Socket del rival (puede estar desconectado)
+            if (rivalConectado) {
+                rivalSocket.currentRoom = salaId;
+                rivalSocket.join(salaId);
             }
 
-            const salaId = 'sala_' + Date.now();
+            // Crear match - guardar mi socket y el del rival (o null si offline)
+            activeMatches[salaId] = {
+                players: [socket, rivalSocket],
+                apuesta: 0,
+                iniciado: false,
+                disconnectTimers: {}
+            };
 
-            j1.currentRoom = salaId; j2.currentRoom = salaId;
-            j1.join(salaId); j2.join(salaId);
-            activeMatches[salaId] = { players: [j1, j2], apuesta: 0, iniciado: false };
+            // Obtener datos del rival de la BD
+            const rivalRes = await db.query(`SELECT * FROM users WHERE id = $1`, [rivalId]);
+            const rivalData = rivalRes.rows[0] || rivalBusqueda;
 
-            const maxAp = Math.min(parseFloat(j1.userData.saldo), parseFloat(j2.userData.saldo));
+            const maxAp = Math.min(parseFloat(row.saldo), parseFloat(rivalData.saldo));
             await db.query(`UPDATE users SET estado = 'partida_encontrada', sala_actual = $1 WHERE id IN ($2, $3)`,
-                [salaId, j1.userData.id, j2.userData.id]);
+                [salaId, miId, rivalId]);
 
-            logClash(`⚔️ MATCH: ${j1.userData.username} vs ${j2.userData.username}`);
-            io.to(salaId).emit('partida_encontrada', { salaId, p1: j1.userData, p2: j2.userData, maxApuesta: maxAp });
+            logClash(`⚔️ MATCH: ${row.username} vs ${rivalBusqueda.username}`);
 
-            // Limpiar búsquedas activas de ambos jugadores
-            for (const player of [j1, j2]) {
-                const busqueda = busquedasActivas[player.userData.id];
+            // Emitir partida encontrada
+            socket.emit('partida_encontrada', { salaId, p1: row, p2: rivalData, maxApuesta: maxAp });
+            if (rivalConectado) {
+                rivalSocket.emit('partida_encontrada', { salaId, p1: row, p2: rivalData, maxApuesta: maxAp });
+            }
+
+            // Limpiar búsquedas activas de ambos jugadores y remover de cola
+            colaEsperaClash = colaEsperaClash.filter(s =>
+                s.userData?.id !== miId && s.userData?.id !== rivalId
+            );
+
+            for (const playerId of [miId, rivalId]) {
+                const busqueda = busquedasActivas[playerId];
                 if (busqueda) {
                     clearTimeout(busqueda.timeoutId);
                     eliminarNotificacion(busqueda.notifId);
-                    io.emit('busqueda_cancelada', { oderId: player.userData.id, username: player.userData.username });
-                    delete busquedasActivas[player.userData.id];
+                    io.emit('busqueda_cancelada', { oderId: playerId, username: busqueda.username });
+                    delete busquedasActivas[playerId];
                 }
             }
 
-            // Ya no enviamos push de match_found porque ambos están conectados
+            // Si el rival está offline, activar timer de 90 segundos
+            if (!rivalConectado) {
+                console.log(`⏰ ${rivalBusqueda.username} está offline - iniciando timer de 90s`);
+
+                // Enviar push notification urgente al rival
+                enviarNotificacionPush(rivalId, '⚔️ ¡RIVAL ENCONTRADO!',
+                    `Tu rival es ${row.username}. ¡Tienes 90 segundos para entrar!`,
+                    { tipo: 'match_found', salaId, rivalId: miId.toString(), urgente: 'true' });
+
+                // Avisar al conectado que el rival está offline
+                socket.emit('rival_desconectado', { tiempo: 90, mensaje: 'Tu rival está offline. Esperando 90s...' });
+
+                // Timer de 90 segundos
+                activeMatches[salaId].disconnectTimers[rivalId] = setTimeout(async () => {
+                    console.log(`💀 ${rivalBusqueda.username} no volvió en 90s - cancelando match`);
+
+                    // Actualizar estadísticas del que no volvió
+                    await db.query(`UPDATE users SET salidas_desconexion = salidas_desconexion + 1, estado = 'normal', sala_actual = NULL WHERE id = $1`, [rivalId]);
+
+                    // Liberar al jugador conectado
+                    await db.query(`UPDATE users SET estado = 'normal', sala_actual = NULL WHERE id = $1`, [miId]);
+
+                    // Notificar al conectado
+                    socket.emit('match_cancelado', { motivo: `${rivalBusqueda.username} no respondió (90s)` });
+                    socket.leave(salaId);
+                    socket.currentRoom = null;
+
+                    // Log
+                    logClash(`⚠️ ABANDONO: ${rivalBusqueda.username} no volvió (90s) - Match cancelado`);
+
+                    // Limpiar
+                    delete activeMatches[salaId];
+                }, 90000);
+            }
         }
     });
 

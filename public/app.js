@@ -256,6 +256,14 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
+        // Listener: Reconecté y sigo buscando partida
+        socket.on('buscando_activo', (data) => {
+            console.log("🔄 Reconectado con búsqueda activa");
+            if (typeof actualizarEstadoVisual === 'function') {
+                actualizarEstadoVisual('buscando', true);
+            }
+        });
+
     } catch (e) { console.error(e); }
 
     // --- FIX MAESTRO: AUTO-RECARGA POR SUSPENSIÓN ---
