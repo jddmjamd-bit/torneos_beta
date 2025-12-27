@@ -933,6 +933,11 @@ setInterval(async () => {
             // Notificar por socket
             io.emit('sorteo_expirado', { raffleId: raffle.id, nombre: raffle.nombre });
 
+            // Push notification a TODOS los usuarios sobre la expiración
+            enviarNotificacionATodos(null, '⏰ Sorteo Expirado',
+                `El sorteo "${raffle.nombre}" expiró sin completarse.`,
+                { tipo: 'sorteo_expirado', raffleId: raffle.id.toString() });
+
             // Correo al admin
             notificarAdmin("SORTEO EXPIRADO", `El sorteo "${raffle.nombre}" expiró sin completarse. Tickets devueltos a los usuarios.`);
         }
@@ -1127,8 +1132,13 @@ app.post('/api/admin/raffle/create', async (req, res) => {
 
         const nuevoSorteo = result.rows[0];
 
-        // Notificar a todos
+        // Notificar a todos por socket
         io.emit('nuevo_sorteo', nuevoSorteo);
+
+        // Push notification a todos los usuarios
+        enviarNotificacionATodos(null, '🎁 ¡NUEVO SORTEO!',
+            `"${nombre}" disponible. ¡Usa tus tickets para participar!`,
+            { tipo: 'nuevo_sorteo', raffleId: nuevoSorteo.id.toString() });
 
         res.json({ success: true, sorteo: nuevoSorteo });
     } catch (e) {
@@ -1137,18 +1147,28 @@ app.post('/api/admin/raffle/create', async (req, res) => {
     }
 });
 
-// Eliminar sorteo (admin) - devuelve tickets
+// Eliminar sorteo (admin) - devuelve tickets SOLO si no está completado
 app.delete('/api/admin/raffle/:id', async (req, res) => {
     try {
         const raffleId = req.params.id;
 
-        // Obtener participaciones y devolver tickets
-        const entriesRes = await db.query(`SELECT * FROM raffle_entries WHERE raffle_id = $1`, [raffleId]);
-        for (const entry of entriesRes.rows) {
-            await db.query(`
-                INSERT INTO user_tickets (user_id, cantidad) VALUES ($1, $2)
-                ON CONFLICT (user_id) DO UPDATE SET cantidad = user_tickets.cantidad + $2
-            `, [entry.user_id, entry.tickets_asignados]);
+        // Verificar si el sorteo ya tiene ganador
+        const raffleRes = await db.query(`SELECT estado FROM raffles WHERE id = $1`, [raffleId]);
+        const sorteo = raffleRes.rows[0];
+
+        if (!sorteo) {
+            return res.status(404).json({ error: 'Sorteo no encontrado' });
+        }
+
+        // Solo devolver tickets si el sorteo NO está completado (no tiene ganador)
+        if (sorteo.estado !== 'completado') {
+            const entriesRes = await db.query(`SELECT * FROM raffle_entries WHERE raffle_id = $1`, [raffleId]);
+            for (const entry of entriesRes.rows) {
+                await db.query(`
+                    INSERT INTO user_tickets (user_id, cantidad) VALUES ($1, $2)
+                    ON CONFLICT (user_id) DO UPDATE SET cantidad = user_tickets.cantidad + $2
+                `, [entry.user_id, entry.tickets_asignados]);
+            }
         }
 
         // Eliminar sorteo (cascade eliminará entries)
@@ -1157,7 +1177,10 @@ app.delete('/api/admin/raffle/:id', async (req, res) => {
         // Notificar a todos
         io.emit('sorteo_eliminado', { raffleId: parseInt(raffleId) });
 
-        res.json({ success: true, message: 'Sorteo eliminado, tickets devueltos' });
+        const mensaje = sorteo.estado === 'completado'
+            ? 'Sorteo completado eliminado'
+            : 'Sorteo eliminado, tickets devueltos';
+        res.json({ success: true, message: mensaje });
     } catch (e) {
         console.error("Error eliminando sorteo:", e);
         res.status(500).json({ error: 'Error eliminando sorteo' });
