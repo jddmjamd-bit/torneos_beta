@@ -133,8 +133,11 @@ const initDB = async () => {
             estado TEXT DEFAULT 'activo',
             ganador_id INTEGER,
             ganador_nombre TEXT,
-            fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            fecha_completado TIMESTAMP
         )`);
+        // Migración: Agregar columna fecha_completado si no existe
+        await db.query(`ALTER TABLE raffles ADD COLUMN IF NOT EXISTS fecha_completado TIMESTAMP`);
 
         // 9. Participaciones en sorteos
         await db.query(`CREATE TABLE IF NOT EXISTS raffle_entries (

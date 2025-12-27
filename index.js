@@ -844,8 +844,8 @@ async function ejecutarSorteo(raffleId) {
         const ganadorRes = await db.query(`SELECT username, email, telefono, player_tag FROM users WHERE id = $1`, [ganadorId]);
         const ganador = ganadorRes.rows[0];
 
-        // 6. Actualizar el sorteo
-        await db.query(`UPDATE raffles SET estado = 'completado', ganador_id = $1, ganador_nombre = $2 WHERE id = $3`,
+        // 6. Actualizar el sorteo con fecha de completado
+        await db.query(`UPDATE raffles SET estado = 'completado', ganador_id = $1, ganador_nombre = $2, fecha_completado = NOW() WHERE id = $3`,
             [ganadorId, ganador.username, raffleId]);
 
         // 7. Enviar correo al admin con datos del ganador
@@ -879,6 +879,18 @@ async function ejecutarSorteo(raffleId) {
         enviarNotificacionPush(ganadorId, '🏆 ¡GANASTE EL SORTEO!',
             `¡Felicidades! Ganaste "${raffle.nombre}". Te contactaremos pronto.`,
             { tipo: 'sorteo_ganador', raffleId: raffleId.toString() });
+
+        // 10. Agregar mensaje al registro de Clash
+        const mensajeRegistro = `🏆 SORTEO COMPLETADO: "${raffle.nombre}" — Ganador: ${ganador.username}`;
+        await db.query(`INSERT INTO messages (canal, usuario, texto, tipo) VALUES ($1, $2, $3, $4)`,
+            ['clash_logs', 'SISTEMA', mensajeRegistro, 'log']);
+        io.emit('nuevo_mensaje', {
+            canal: 'clash_logs',
+            usuario: 'SISTEMA',
+            texto: mensajeRegistro,
+            tipo: 'log',
+            fecha: new Date().toISOString()
+        });
 
         console.log(`🏆 Sorteo #${raffleId} completado. Ganador: ${ganador.username}`);
     } catch (e) {
@@ -943,19 +955,45 @@ app.get('/api/raffle/tickets/:userId', async (req, res) => {
 });
 
 // Obtener sorteos activos (con mis participaciones si estoy logueado)
+// Incluye sorteos completados (con ganador) pero para usuarios normales se ocultan después de 1 hora
 app.get('/api/raffle/offers', async (req, res) => {
     try {
         const userId = req.signedCookies.userId;
-        const rafflesRes = await db.query(`
-            SELECT r.*, 
-                COALESCE(e.tickets_asignados, 0) as mis_tickets
-            FROM raffles r
-            LEFT JOIN raffle_entries e ON r.id = e.raffle_id AND e.user_id = $1
-            WHERE r.estado = 'activo'
-            ORDER BY r.fecha_limite ASC
-        `, [userId || 0]);
+
+        // Verificar si es admin
+        let esAdmin = false;
+        if (userId) {
+            const userRes = await db.query(`SELECT tipo_suscripcion FROM users WHERE id = $1`, [userId]);
+            esAdmin = userRes.rows[0]?.tipo_suscripcion === 'admin';
+        }
+
+        let rafflesRes;
+        if (esAdmin) {
+            // Admin ve todos los sorteos activos y completados (sin límite de tiempo)
+            rafflesRes = await db.query(`
+                SELECT r.*, 
+                    COALESCE(e.tickets_asignados, 0) as mis_tickets
+                FROM raffles r
+                LEFT JOIN raffle_entries e ON r.id = e.raffle_id AND e.user_id = $1
+                WHERE r.estado IN ('activo', 'completado')
+                ORDER BY r.estado ASC, r.fecha_limite ASC
+            `, [userId || 0]);
+        } else {
+            // Usuarios normales: activos + completados (solo si hace menos de 1 hora)
+            rafflesRes = await db.query(`
+                SELECT r.*, 
+                    COALESCE(e.tickets_asignados, 0) as mis_tickets
+                FROM raffles r
+                LEFT JOIN raffle_entries e ON r.id = e.raffle_id AND e.user_id = $1
+                WHERE r.estado = 'activo' 
+                   OR (r.estado = 'completado' AND r.fecha_completado > NOW() - INTERVAL '1 hour')
+                ORDER BY r.estado ASC, r.fecha_limite ASC
+            `, [userId || 0]);
+        }
+
         res.json(rafflesRes.rows);
     } catch (e) {
+        console.error("Error obteniendo sorteos:", e);
         res.status(500).json({ error: 'Error obteniendo sorteos' });
     }
 });
@@ -1073,13 +1111,13 @@ app.post('/api/raffle/participate', async (req, res) => {
 // Crear sorteo (admin)
 app.post('/api/admin/raffle/create', async (req, res) => {
     try {
-        const { nombre, categoria, precio, duracionHoras } = req.body;
+        const { nombre, categoria, precio, duracionMinutos } = req.body;
 
         // Calcular tickets necesarios (redondeo al mayor)
         const ticketsNecesarios = Math.ceil(precio / 1000);
 
-        // Calcular fecha límite
-        const fechaLimite = new Date(Date.now() + (duracionHoras * 60 * 60 * 1000));
+        // Calcular fecha límite (en minutos para pruebas fáciles)
+        const fechaLimite = new Date(Date.now() + (duracionMinutos * 60 * 1000));
 
         const result = await db.query(`
             INSERT INTO raffles (nombre, categoria, precio, tickets_necesarios, fecha_limite)

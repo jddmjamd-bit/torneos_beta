@@ -1423,6 +1423,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const misTickets = sorteo.mis_tickets || 0;
             const fechaLimite = new Date(sorteo.fecha_limite);
             const esAdmin = currentUser && currentUser.tipo_suscripcion === 'admin';
+            const esCompletado = sorteo.estado === 'completado';
 
             // Categoría con emoji
             const categoriasEmoji = {
@@ -1431,6 +1432,35 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             const emoji = categoriasEmoji[sorteo.categoria] || '🎁';
 
+            // Si está completado, mostrar diseño de ganador
+            if (esCompletado) {
+                return `
+                    <div class="sorteo-card sorteo-ganador" data-id="${sorteo.id}">
+                        <div class="sorteo-header">
+                            <div>
+                                <span class="sorteo-nombre">${emoji} ${sorteo.nombre}</span>
+                                <span class="sorteo-categoria">${sorteo.categoria}</span>
+                            </div>
+                            ${esAdmin ? `<span class="sorteo-precio">$${sorteo.precio.toLocaleString()}</span>` : ''}
+                        </div>
+
+                        <div class="sorteo-ganador-info">
+                            🏆 GANADOR: <strong>${sorteo.ganador_nombre}</strong>
+                        </div>
+
+                        <div class="ticket-progress">
+                            <div class="ticket-progress-bar">
+                                <div class="ticket-progress-fill" style="width: 100%"></div>
+                                <span class="ticket-progress-text">✅ ${sorteo.tickets_necesarios} / ${sorteo.tickets_necesarios} tickets</span>
+                            </div>
+                        </div>
+
+                        ${esAdmin ? `<button class="btn-eliminar-sorteo" onclick="eliminarSorteo(${sorteo.id})">🗑️ Eliminar</button>` : ''}
+                    </div>
+                `;
+            }
+
+            // Sorteo activo normal
             return `
                 <div class="sorteo-card nuevo" data-id="${sorteo.id}">
                     <div class="sorteo-header">
@@ -1438,7 +1468,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <span class="sorteo-nombre">${emoji} ${sorteo.nombre}</span>
                             <span class="sorteo-categoria">${sorteo.categoria}</span>
                         </div>
-                        <span class="sorteo-precio">$${sorteo.precio.toLocaleString()}</span>
+                        ${esAdmin ? `<span class="sorteo-precio">$${sorteo.precio.toLocaleString()}</span>` : ''}
                     </div>
 
                     <div class="ticket-progress">
@@ -1565,7 +1595,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'include',
-                    body: JSON.stringify({ nombre, categoria, precio, duracionHoras: duracion })
+                    body: JSON.stringify({ nombre, categoria, precio, duracionMinutos: duracion })
                 });
 
                 const data = await res.json();
