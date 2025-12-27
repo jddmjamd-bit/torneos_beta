@@ -38,25 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (isNativeApp) {
         console.log("📱 App nativa detectada - Solicitando permisos...");
 
-        // Usar el plugin de Camera de Capacitor para solicitar permisos
-        // Esto dispara el diálogo nativo de Android automáticamente
-        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Camera) {
-            const Camera = window.Capacitor.Plugins.Camera;
-
-            // Solicitar permisos de cámara y fotos
-            Camera.checkPermissions().then(status => {
-                console.log("📷 Estado permisos cámara:", status);
-                if (status.camera !== 'granted' || status.photos !== 'granted') {
-                    Camera.requestPermissions({ permissions: ['camera', 'photos'] })
-                        .then(result => console.log("📷 Permisos solicitados:", result))
-                        .catch(e => console.log("📷 Error pidiendo permisos:", e));
-                }
-            }).catch(e => console.log("📷 Error verificando permisos:", e));
-        } else {
-            console.log("⚠️ Plugin Camera no disponible");
-        }
-
-        // --- PUSH NOTIFICATIONS ---
+        // --- PUSH NOTIFICATIONS - Solicitar permiso al inicio ---
         if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications) {
             const PushNotifications = window.Capacitor.Plugins.PushNotifications;
             const LocalNotifications = window.Capacitor.Plugins.LocalNotifications;
@@ -76,20 +58,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     .catch(e => console.log("🔔 Error creando canal:", e));
             }
 
-            // Verificar permisos
-            PushNotifications.checkPermissions().then(status => {
-                console.log("🔔 Estado permisos push:", status);
-                if (status.receive !== 'granted') {
-                    PushNotifications.requestPermissions().then(result => {
-                        console.log("🔔 Permisos push solicitados:", result);
-                        if (result.receive === 'granted') {
-                            PushNotifications.register();
-                        }
-                    });
-                } else {
+            // Solicitar permisos INMEDIATAMENTE al inicio (dispara diálogo nativo de Android)
+            PushNotifications.requestPermissions().then(result => {
+                console.log("🔔 Permisos push solicitados:", result);
+                if (result.receive === 'granted') {
                     PushNotifications.register();
                 }
-            });
+            }).catch(e => console.log("🔔 Error pidiendo permisos push:", e));
 
             // Cuando se registra exitosamente, guardar token
             PushNotifications.addListener('registration', async (token) => {
